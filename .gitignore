@@ -1,5 +1,8 @@
 .DS_Store
-data/
+/data/
+/sft/data/
+overall_pipeline/data/*
+!overall_pipeline/data/.gitkeep
 code/outputs/
 **/__pycache__/
 *.py[cod]
