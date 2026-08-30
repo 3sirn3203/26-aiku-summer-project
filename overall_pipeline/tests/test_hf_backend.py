@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -181,6 +183,7 @@ class HuggingFaceBackendTests(unittest.TestCase):
             init_kwargs={"_commit_hash": "resolved-sha"},
             pad_token_id=0,
             eos_token_id=1,
+            chat_template="embedded-template",
         )
         model = SimpleNamespace(
             config=SimpleNamespace(_commit_hash="resolved-sha"),
@@ -262,23 +265,38 @@ class HuggingFaceBackendTests(unittest.TestCase):
                 allow_model_download=False,
             )
             tokenizer.init_kwargs = {}
+            tokenizer.chat_template = None
             model.config._commit_hash = None
-            local_config = SimpleNamespace(
-                model_id="/srv/checkpoints/coder-sft",
-                revision="local",
-                dtype="float32",
-                device="cuda:0",
-                attention_implementation="eager",
-                trust_remote_code=False,
-                cache_dir=None,
-                source="local",
-                checkpoint_identity="local-sha256:" + "a" * 64,
-            )
-            local_backend = HuggingFaceBackend(
-                local_config,
-                generation_config,
-                allow_model_download=False,
-            )
+            with tempfile.TemporaryDirectory() as temp_dir:
+                local_model_path = Path(temp_dir) / "coder-sft"
+                local_model_path.mkdir()
+                expected_chat_template = "{{ messages }}"
+                (local_model_path / "chat_template.jinja").write_text(
+                    expected_chat_template,
+                    encoding="utf-8",
+                )
+                local_config = SimpleNamespace(
+                    model_id=str(local_model_path),
+                    revision="local",
+                    dtype="float32",
+                    device="cuda:0",
+                    attention_implementation="eager",
+                    trust_remote_code=False,
+                    cache_dir=None,
+                    source="local",
+                    checkpoint_identity="local-sha256:" + "a" * 64,
+                )
+                local_backend = HuggingFaceBackend(
+                    local_config,
+                    generation_config,
+                    allow_model_download=False,
+                )
+
+                self.assertEqual(local_backend._tokenizer.chat_template, expected_chat_template)
+                self.assertEqual(
+                    local_backend._environment["tokenizer_chat_template_source"],
+                    "chat_template.jinja",
+                )
 
         self.assertEqual(calls["tokenizer"][0][1]["revision"], "main")
         self.assertTrue(calls["tokenizer"][0][1]["local_files_only"])
@@ -293,9 +311,13 @@ class HuggingFaceBackendTests(unittest.TestCase):
         self.assertEqual(effective.max_new_tokens, 512)
         self.assertEqual(backend._resolved_revision, "resolved-sha")
         self.assertEqual(backend._environment["cuda_fp32_probe"], "passed")
+        self.assertEqual(
+            backend._environment["tokenizer_chat_template_source"],
+            "tokenizer_config",
+        )
         local_tokenizer_kwargs = calls["tokenizer"][1][1]
         local_model_kwargs = calls["model"][1][1]
-        self.assertEqual(calls["tokenizer"][1][0], "/srv/checkpoints/coder-sft")
+        self.assertEqual(calls["tokenizer"][1][0], str(local_model_path))
         self.assertNotIn("revision", local_tokenizer_kwargs)
         self.assertNotIn("cache_dir", local_tokenizer_kwargs)
         self.assertTrue(local_tokenizer_kwargs["local_files_only"])

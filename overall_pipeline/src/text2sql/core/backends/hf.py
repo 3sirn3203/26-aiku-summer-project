@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from text2sql.core.backends.base import GenerationBackend
@@ -132,6 +133,23 @@ class HuggingFaceBackend(GenerationBackend):
         else:
             common_kwargs["local_files_only"] = True
         tokenizer = AutoTokenizer.from_pretrained(self.model_config.model_id, **common_kwargs)
+        tokenizer_chat_template_source = "tokenizer_config"
+        if tokenizer.chat_template is None:
+            if model_source != "local":
+                raise RuntimeError("loaded tokenizer does not define a chat template")
+            chat_template_path = (
+                Path(self.model_config.model_id) / "chat_template.jinja"
+            )
+            if not chat_template_path.is_file():
+                raise RuntimeError(
+                    "local tokenizer does not define a chat template and %s does not exist"
+                    % chat_template_path
+                )
+            chat_template = chat_template_path.read_text(encoding="utf-8")
+            if not chat_template.strip():
+                raise RuntimeError("local chat template is empty: %s" % chat_template_path)
+            tokenizer.chat_template = chat_template
+            tokenizer_chat_template_source = "chat_template.jinja"
         model = AutoModelForCausalLM.from_pretrained(
             self.model_config.model_id,
             torch_dtype=torch.float32,
@@ -195,6 +213,7 @@ class HuggingFaceBackend(GenerationBackend):
             "gpu_memory_free_before_load_bytes": int(free_memory),
             "gpu_memory_total_bytes": int(total_memory),
             "tokenizer_resolved_revision": tokenizer_revision,
+            "tokenizer_chat_template_source": tokenizer_chat_template_source,
             "model_source": model_source,
             "checkpoint_identity": model_revision,
         }
