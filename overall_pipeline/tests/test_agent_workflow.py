@@ -123,6 +123,7 @@ class AgentContractTests(unittest.TestCase):
             status="success",
             columns=["value"],
             rows=[["한" * 5000]] + [[number] for number in range(9)],
+            row_count=100,
             query_elapsed_ns=1234,
             vm_steps_lower_bound=2000,
             vm_steps_upper_bound_exclusive=3000,
@@ -135,7 +136,7 @@ class AgentContractTests(unittest.TestCase):
         ).encode("utf-8")
         self.assertLessEqual(len(encoded), 4096)
         self.assertLessEqual(len(observation["rows"]), 5)
-        self.assertEqual(observation["row_count"], 10)
+        self.assertEqual(observation["row_count"], 100)
         self.assertTrue(observation["truncated"])
         self.assertEqual(observation["vm_steps_lower_bound"], 2000)
         self.assertEqual(observation["vm_steps_upper_bound_exclusive"], 3000)

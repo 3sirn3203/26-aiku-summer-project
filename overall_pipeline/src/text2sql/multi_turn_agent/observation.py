@@ -80,7 +80,11 @@ def bound_execution_observation(
             else None
         ),
         "columns": [_truncate_utf8(str(column), 256) for column in execution.columns],
-        "row_count": len(source_rows) if execution.status == "success" else None,
+        "row_count": (
+            execution.row_count
+            if execution.status == "success" and execution.row_count is not None
+            else (len(source_rows) if execution.status == "success" else None)
+        ),
         "rows": selected_rows,
         "query_elapsed_ns": execution.query_elapsed_ns,
         "vm_steps_lower_bound": execution.vm_steps_lower_bound,

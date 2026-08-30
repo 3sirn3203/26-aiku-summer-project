@@ -71,11 +71,24 @@ class ExecutionResult:
 
     ``elapsed_seconds`` is retained for artifact compatibility.  Results
     returned by ``execute_sql`` define it as ``parent_elapsed_ns / 1e9``.
+
+    Successful executions consume the complete cursor. ``rows`` contains only
+    a configured prefix, while ``row_count`` and the fingerprints describe the
+    complete result. ``truncated`` therefore means that the retained payload is
+    incomplete, not that SQL execution itself was interrupted.
     """
 
     status: str
     rows: List[List[Any]] = field(default_factory=list)
     columns: List[str] = field(default_factory=list)
+    # ``rows`` is a bounded prefix retained for observations and artifacts.
+    # These fields describe the complete streamed result, including rows that
+    # were not retained in memory.  Fingerprints are absent for executions
+    # that did not finish successfully and for legacy/in-memory test results.
+    row_count: Optional[int] = None
+    row_fingerprint_version: Optional[int] = None
+    ordered_rows_fingerprint: Optional[str] = None
+    unordered_rows_fingerprint: Optional[str] = None
     elapsed_seconds: float = 0.0
     query_elapsed_ns: Optional[int] = None
     worker_elapsed_ns: Optional[int] = None

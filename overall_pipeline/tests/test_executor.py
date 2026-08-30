@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from text2sql.core.evaluation import compare_results, result_hash
 from text2sql.core.executor import execute_sql
 
 
@@ -58,6 +59,16 @@ class ExecutorTests(unittest.TestCase):
         empty = self._run("SELECT * FROM items WHERE id < 0")
         self.assertEqual(empty.status, "success")
         self.assertEqual(empty.rows, [])
+
+    def test_invalid_utf8_text_is_preserved_without_aborting_stream(self) -> None:
+        result = self._run("SELECT CAST(X'80FF' AS TEXT)")
+
+        self.assertEqual(result.status, "success", result.to_dict())
+        self.assertEqual(
+            result.rows,
+            [[{"__sqlite_text_base64__": "gP8="}]],
+        )
+        self.assertEqual(result.row_count, 1)
 
     def test_timing_boundaries_are_recorded_for_success(self) -> None:
         result = self._run("SELECT id, name FROM items ORDER BY id")
@@ -147,15 +158,71 @@ class ExecutorTests(unittest.TestCase):
         self.assertIsNone(result.vm_steps_upper_bound_exclusive)
         self.assertEqual(self._run("SELECT count(*) FROM items").rows, [[3]])
 
-    def test_result_limits(self) -> None:
+    def test_result_payload_is_bounded_while_full_result_is_streamed(self) -> None:
         rows = self._run("SELECT * FROM items", max_result_rows=1)
-        self.assertEqual(rows.status, "result_limit")
+        self.assertEqual(rows.status, "success")
         self.assertTrue(rows.truncated)
-        self.assertFalse(rows.vm_step_measurement_complete)
-        self.assertIsNone(rows.vm_steps_upper_bound_exclusive)
+        self.assertEqual(rows.row_count, 3)
+        self.assertEqual(len(rows.rows), 1)
+        self.assertEqual(rows.row_fingerprint_version, 1)
+        self.assertIsNotNone(rows.ordered_rows_fingerprint)
+        self.assertIsNotNone(rows.unordered_rows_fingerprint)
+        self.assertTrue(rows.vm_step_measurement_complete)
+        self.assertIsNotNone(rows.vm_steps_upper_bound_exclusive)
+
         size = self._run("SELECT '%s'" % ("x" * 1000), max_result_bytes=20)
         self.assertEqual(size.status, "result_limit")
         self.assertTrue(size.truncated)
+
+    def test_more_than_ten_thousand_rows_complete_with_bounded_memory(self) -> None:
+        result = self._run(
+            "WITH RECURSIVE n(x) AS "
+            "(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<12001) "
+            "SELECT x FROM n ORDER BY x",
+            max_result_rows=2,
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.row_count, 12001)
+        self.assertEqual(result.rows, [[1], [2]])
+        self.assertTrue(result.truncated)
+        self.assertTrue(result.vm_step_measurement_complete)
+
+    def test_streamed_comparison_detects_tail_and_respects_order(self) -> None:
+        ascending = self._run(
+            "SELECT id FROM items ORDER BY id",
+            max_result_rows=1,
+        )
+        descending = self._run(
+            "SELECT id FROM items ORDER BY id DESC",
+            max_result_rows=1,
+        )
+        changed_tail = self._run(
+            "SELECT CASE WHEN id=3 THEN 99 ELSE id END FROM items ORDER BY id",
+            max_result_rows=1,
+        )
+
+        reordered = compare_results(ascending, descending, order_sensitive=False)
+        self.assertTrue(reordered["unordered_match"])
+        self.assertFalse(reordered["ordered_match"])
+        self.assertTrue(reordered["result_match"])
+
+        mismatch = compare_results(ascending, changed_tail, order_sensitive=False)
+        self.assertFalse(mismatch["result_match"])
+
+        fully_retained = self._run(
+            "SELECT id FROM items ORDER BY id",
+            max_result_rows=100,
+        )
+        self.assertEqual(result_hash(ascending), result_hash(fully_retained))
+
+        duplicate = self._run(
+            "SELECT 1 AS value UNION ALL SELECT 1",
+            max_result_rows=1,
+        )
+        single = self._run("SELECT 1 AS value", max_result_rows=1)
+        multiplicity = compare_results(duplicate, single, order_sensitive=False)
+        self.assertFalse(multiplicity["result_match"])
 
     def test_memory_amplifying_functions_are_blocked(self) -> None:
         for sql in (

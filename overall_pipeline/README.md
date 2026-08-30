@@ -176,10 +176,19 @@ Mock backend은 고정 표본에 대응하는 gold SQL을 deterministic response
 - extension loading 비활성화
 - 다중 statement 차단
 - 내부 progress timeout과 부모 wall-clock timeout
-- SQL 길이, 반환 row 수, 결과 byte 크기 제한
+- SQL 길이와 단일 SQLite 값 크기 제한, 메모리에 보관·IPC로 반환하는 결과
+  row prefix 및 byte 크기 제한
 - Linux worker address-space 1 GiB 제한 및 Python 3.11 SQLite engine 길이 제한
 - `randomblob`, `zeroblob`, `printf`, `format` 등 메모리 증폭 함수 차단
 - mutation, DDL, ATTACH, PRAGMA, unsafe function 차단
+
+`execution.max_result_rows`와 누적 `execution.max_result_bytes`는 전체 cursor
+실행을 중단하는 정확도 상한이 아니라, worker가 메모리에 보관하고 부모
+process로 보내는 row prefix의 상한입니다. `max_result_bytes`는 비정상적으로 큰
+단일 SQLite 값에 대한 engine-level 상한으로도 사용합니다. Cursor는 timeout
+안에서 끝까지 스트리밍하며 전체 `row_count`와 ordered/unordered fingerprint를
+계산합니다. 따라서 큰 정상 결과도 비교할 수 있고, artifact와 IPC payload는
+계속 제한됩니다.
 
 이 구성은 현재의 단일 사용자 연구 환경을 위한 것입니다. 외부 사용자가 임의 SQL이나 DB 파일을 제출하는 서비스로 확장할 경우에는 별도의 container sandbox가 필요합니다.
 
@@ -192,7 +201,7 @@ Linux의 공식 evaluator worker에는 address-space 상한을 fail-closed로
 적용합니다. 이 worker에서만 OpenBLAS·OpenMP·MKL·NumExpr thread 수를 1로
 강제하여 다중 thread 초기화가 1 GiB address-space 상한을 소진하지 않게
 합니다. 따라서 서버 실행 명령에 해당 환경변수를 별도로 붙일 필요가
-없습니다. 로컬 row/time limit 또는 schema 실행 오류는 공식 점수를
+없습니다. 로컬 time/value-size limit 또는 schema 실행 오류는 공식 점수를
 임의로 0으로 만들지 않으며, 쓰기·다중 statement·위험 함수만 실행 대상에서
 제외해 오답으로 분류합니다.
 
@@ -788,7 +797,8 @@ override까지 반영한 실효 설정이며, 원본 설정은 `source_config`�
 - `vm_step_measurement_complete`: SQL이 정상 완료되어 상한도 유효한지 여부
 
 따라서 이 값은 exact `SQLITE_STMTSTATUS_VM_STEP`이 아니며 summary도 하한값을
-집계합니다. Timeout과 result-limit은 중단 시점까지의 하한만 남깁니다. Agent
+집계합니다. Timeout과 engine-level result-limit은 중단 시점까지의 하한만
+남깁니다. Agent
 trajectory에는 측정값을 보존하지만 기존 실험의 입력 조건을 바꾸지 않도록
 Planner와 Verifier prompt에는 전달하지 않습니다.
 

@@ -264,7 +264,7 @@ class DistributedEvaluationTests(unittest.TestCase):
                 all("gold_sql" not in record for record in generation_records)
             )
             for record in generation_records:
-                self.assertEqual(record["schema_version"], 4)
+                self.assertEqual(record["schema_version"], 5)
                 self.assertNotIn("messages", record)
                 self.assertNotIn("generation_worker", record)
                 self.assertNotIn("schema_sha256", record)
@@ -299,7 +299,7 @@ class DistributedEvaluationTests(unittest.TestCase):
             manifest = json.loads(
                 (run_dir / "run_manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(manifest["schema_version"], 4)
+            self.assertEqual(manifest["schema_version"], 5)
             self.assertEqual(
                 {
                     status["physical_gpu"]

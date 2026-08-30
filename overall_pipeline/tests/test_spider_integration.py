@@ -10,6 +10,7 @@ from unittest import mock
 
 from text2sql.config import load_config
 from text2sql.core.models import ExecutionResult, GenerationResult
+from text2sql.core.executor import execute_sql
 from text2sql.single_turn.smoke_runner import run_smoke
 from text2sql.core.spider import SpiderDataset
 
@@ -37,6 +38,28 @@ class SpiderIntegrationTests(unittest.TestCase):
         self.assertEqual(example.parsed_sql, {})
         self.assertTrue(example.question)
         self.assertTrue(dataset.get_schema(example.db_id).table_names)
+
+    def test_large_gold_result_streams_completely(self) -> None:
+        dataset = SpiderDataset(self.config.spider)
+        example = dataset.get_example(455)
+        result = execute_sql(
+            dataset.database_path(example.db_id),
+            example.gold_sql,
+            timeout_seconds=self.config.execution.timeout_seconds,
+            max_sql_bytes=self.config.execution.max_sql_bytes,
+            max_result_rows=self.config.execution.max_result_rows,
+            max_result_bytes=self.config.execution.max_result_bytes,
+            worker_memory_limit_bytes=(
+                self.config.execution.worker_memory_limit_bytes
+            ),
+        )
+
+        self.assertEqual(example.db_id, "wta_1")
+        self.assertEqual(result.status, "success", result.to_dict())
+        self.assertEqual(result.row_count, 20662)
+        self.assertEqual(len(result.rows), 10000)
+        self.assertTrue(result.truncated)
+        self.assertTrue(result.vm_step_measurement_complete)
 
     def test_mock_smoke_never_imports_model_libraries(self) -> None:
         blocked = {"torch", "transformers", "huggingface_hub"}

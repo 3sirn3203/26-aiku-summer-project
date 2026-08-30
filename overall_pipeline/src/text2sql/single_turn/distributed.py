@@ -291,7 +291,7 @@ def run_generation_worker(
                         ),
                     )
                 record = {
-                    "schema_version": 4,
+                    "schema_version": 5,
                     "run_id": assignment.get("run_id"),
                     "example_id": example_id,
                     "split": example.split,

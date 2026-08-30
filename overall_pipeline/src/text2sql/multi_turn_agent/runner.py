@@ -201,11 +201,17 @@ def _agent_contract(config: AgentAppConfig, selection: str) -> Dict[str, Any]:
             "execution_order_per_example": ["prediction", "gold"],
             "official_evaluation_after_local_execution": True,
         },
+        "result_collection": {
+            "mode": "full_cursor_stream",
+            "retained_rows": "bounded_prefix",
+            "comparison": "row_count_and_streaming_fingerprints",
+            "row_fingerprint_version": 1,
+        },
         "prediction_sql_execution_time": {
             "primary_observation": "predicted_execution.query_elapsed_ns",
             "clock": "time.perf_counter_ns (monotonic)",
             "query_interval_start": "immediately_before_sqlite_connection_execute",
-            "query_interval_end": "after_fetchmany completion or query error",
+            "query_interval_end": "after full cursor consumption or query error",
             "tool_timing_is_primary": False,
             "model_generation_runtime_included": False,
             "official_evaluator_runtime_included": False,

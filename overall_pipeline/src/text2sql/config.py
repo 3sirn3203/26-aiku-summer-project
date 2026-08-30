@@ -64,6 +64,9 @@ class GenerationConfig:
 class ExecutionConfig:
     timeout_seconds: float
     max_sql_bytes: int
+    # Compatibility names: these bound the retained/IPC row prefix, not the
+    # number of rows consumed from a successful cursor. max_result_bytes also
+    # bounds one encoded row and, where supported, a SQLite value.
     max_result_rows: int
     max_result_bytes: int
     worker_memory_limit_bytes: int

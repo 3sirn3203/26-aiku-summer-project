@@ -125,6 +125,7 @@ class WorkflowObservationTests(unittest.TestCase):
             status="success",
             columns=["value"],
             rows=[[index] for index in range(25)],
+            row_count=100,
             error_message="x" * 700,
         )
         with patch(
@@ -134,6 +135,7 @@ class WorkflowObservationTests(unittest.TestCase):
                 _execution_config(), max_observation_rows=20
             ).execute_draft(Path("unused.sqlite"), "SELECT 1")[2]
         self.assertEqual(len(observation.rows), 20)
+        self.assertEqual(observation.row_count, 100)
         self.assertTrue(observation.truncated)
         self.assertEqual(len(observation.error_message), 500)
         json.dumps(observation.to_dict())
@@ -311,4 +313,3 @@ class MockWorkflowEndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

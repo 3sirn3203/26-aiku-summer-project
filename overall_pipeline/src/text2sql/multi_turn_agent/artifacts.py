@@ -198,6 +198,9 @@ def execution_payload(result: ExecutionResult) -> Dict[str, Any]:
     payload = {
         "status": result.status,
         "columns": list(result.columns),
+        "row_fingerprint_version": result.row_fingerprint_version,
+        "ordered_rows_fingerprint": result.ordered_rows_fingerprint,
+        "unordered_rows_fingerprint": result.unordered_rows_fingerprint,
         "elapsed_seconds": result.elapsed_seconds,
         "query_elapsed_ns": result.query_elapsed_ns,
         "worker_elapsed_ns": result.worker_elapsed_ns,
@@ -226,7 +229,11 @@ def execution_payload(result: ExecutionResult) -> Dict[str, Any]:
         if result.parent_elapsed_ns is not None
         else None
     )
-    payload["row_count"] = len(result.rows) if result.succeeded else None
+    payload["row_count"] = (
+        result.row_count
+        if result.succeeded and result.row_count is not None
+        else (len(result.rows) if result.succeeded else None)
+    )
     payload["result_hash"] = result_hash(result)
     return payload
 

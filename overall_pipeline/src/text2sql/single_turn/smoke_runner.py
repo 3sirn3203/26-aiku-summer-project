@@ -196,7 +196,11 @@ def _execution_payload(result: ExecutionResult) -> Dict[str, Any]:
         if result.parent_elapsed_ns is not None
         else None
     )
-    payload["row_count"] = len(result.rows) if result.succeeded else None
+    payload["row_count"] = (
+        result.row_count
+        if result.succeeded and result.row_count is not None
+        else (len(result.rows) if result.succeeded else None)
+    )
     payload["result_hash"] = result_hash(result)
     return payload
 
@@ -443,7 +447,7 @@ def run_smoke(
     effective_config = _effective_config_payload(config)
     config_hash = _sha256_bytes(_json_bytes(effective_config))
     manifest: Dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": run_id,
         "status": "initializing_backend",
         "started_at": started_wall.isoformat(),
@@ -468,13 +472,19 @@ def run_smoke(
             "official_spider_metric": config.official_evaluation.enabled,
             "official_test_suite_accuracy": config.official_evaluation.enabled,
             "official_original_exact_set_match": config.official_evaluation.enabled,
+            "result_collection": {
+                "mode": "full_cursor_stream",
+                "retained_rows": "bounded_prefix",
+                "comparison": "row_count_and_streaming_fingerprints",
+                "row_fingerprint_version": 1,
+            },
             "prediction_sql_execution_time": {
                 "recorded": True,
                 "reward_design_in_scope": False,
                 "primary_observation": "predicted_execution.query_elapsed_ns",
                 "clock": "time.perf_counter_ns (monotonic)",
                 "query_interval_start": "immediately_before_sqlite_connection_execute",
-                "query_interval_end": "after_fetchmany_completion_or_query_error",
+                "query_interval_end": "after_full_cursor_consumption_or_query_error",
                 "execution_order": ["prediction", "gold"],
                 "cache_policy": "no_explicit_cache_reset; prediction_runs_before_gold",
                 "summary_inclusion": (
@@ -549,7 +559,7 @@ def run_smoke(
         finished_wall = datetime.now(timezone.utc)
         failure = _failure_payload("backend_initialization", exc)
         summary = {
-            "schema_version": 2,
+            "schema_version": 3,
             "run_id": run_id,
             "backend": backend_name,
             "pipeline_pass": False,
@@ -646,7 +656,7 @@ def run_smoke(
                 comparison["metric"] = "local_single_database_result_match"
                 comparison["official_spider_metric"] = False
                 record = {
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "run_id": run_id,
                     "example_id": example_id,
                     "split": example.split,
@@ -747,7 +757,7 @@ def run_smoke(
         finished_wall = datetime.now(timezone.utc)
         failure = _failure_payload(processing_error_stage, processing_error)
         summary = {
-            "schema_version": 2,
+            "schema_version": 3,
             "run_id": run_id,
             "backend": backend_name,
             "pipeline_pass": False,
@@ -874,7 +884,7 @@ def run_smoke(
     )
     finished_wall = datetime.now(timezone.utc)
     summary: Dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": run_id,
         "backend": backend_name,
         "backend_selector": backend_name,

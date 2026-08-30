@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import math
 import multiprocessing
 import sqlite3
@@ -10,6 +9,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from text2sql.core.evaluation import (
+    ROW_FINGERPRINT_VERSION,
+    RowFingerprintAccumulator,
+    canonical_row_bytes,
+)
 from text2sql.core.models import ExecutionResult
 from text2sql.core.sql_text import (
     function_calls,
@@ -111,6 +115,22 @@ _WRITE_STATEMENT_KEYWORDS = {
 }
 
 
+class _InvalidUtf8Text:
+    def __init__(self, raw: bytes) -> None:
+        self.raw = raw
+
+
+class _ResultValueTooLarge(Exception):
+    pass
+
+
+def _decode_sqlite_text(raw: bytes) -> Any:
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return _InvalidUtf8Text(raw)
+
+
 def _read_only_uri(path: Path) -> str:
     return "%s?mode=ro&cache=private" % path.resolve().as_uri()
 
@@ -126,6 +146,10 @@ def _json_safe(value: Any) -> Any:
         return value
     if isinstance(value, bytes):
         return {"__bytes_base64__": base64.b64encode(value).decode("ascii")}
+    if isinstance(value, _InvalidUtf8Text):
+        return {
+            "__sqlite_text_base64__": base64.b64encode(value.raw).decode("ascii")
+        }
     return {"__repr__": repr(value)}
 
 
@@ -138,6 +162,7 @@ def _error_result(
     query_elapsed_ns: Optional[int] = None,
     worker_elapsed_ns: Optional[int] = None,
     parent_elapsed_ns: Optional[int] = None,
+    truncated: bool = False,
 ) -> ExecutionResult:
     return ExecutionResult(
         status=status,
@@ -148,6 +173,7 @@ def _error_result(
         worker_elapsed_ns=worker_elapsed_ns,
         parent_elapsed_ns=parent_elapsed_ns,
         denied_action=denied_action,
+        truncated=truncated,
     )
 
 
@@ -157,7 +183,7 @@ def preflight_read_only_sql(sql: str, max_sql_bytes: int) -> Optional[ExecutionR
     Passing this preflight means only that the input is one bounded, read-only
     ``SELECT`` (possibly introduced by CTEs) without known side-effect or
     memory-amplifying functions. SQLite parsing, schema validity, runtime, and
-    result limits are intentionally evaluated later.
+    execution and bounded-payload rules are intentionally evaluated later.
     """
 
     if max_sql_bytes < 1:
@@ -247,6 +273,7 @@ def _classify_sqlite_error(
             "SQLite result exceeded an engine-level size limit",
             elapsed,
             query_elapsed_ns=query_elapsed_ns,
+            truncated=True,
         )
     syntax_markers = (
         "syntax error",
@@ -323,6 +350,7 @@ def _execute_worker(
             isolation_level=None,
             cached_statements=0,
         )
+        connection.text_factory = _decode_sqlite_text
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")
         connection.execute("PRAGMA temp_store=MEMORY")
@@ -372,54 +400,48 @@ def _execute_worker(
         query_started_ns = time.perf_counter_ns()
         deadline_ns = query_started_ns + int(timeout_seconds * 1_000_000_000)
         cursor = connection.execute(sql)
-        fetched = cursor.fetchmany(max_result_rows + 1)
-        query_elapsed_ns = time.perf_counter_ns() - query_started_ns
         columns = [str(item[0]) for item in cursor.description] if cursor.description else []
-        elapsed = (time.perf_counter_ns() - worker_started_ns) / 1_000_000_000
-        if len(fetched) > max_result_rows:
-            result = ExecutionResult(
-                status="result_limit",
-                rows=[],
-                columns=columns,
-                elapsed_seconds=elapsed,
-                query_elapsed_ns=query_elapsed_ns,
-                error_type="result_limit",
-                error_message="SQL returned more than %d rows" % max_result_rows,
-                truncated=True,
-            )
-        else:
-            rows: List[List[Any]] = []
-            payload_bytes = 0
-            too_large = False
+        rows: List[List[Any]] = []
+        retained_payload_bytes = 0
+        retain_prefix = True
+        fingerprints = RowFingerprintAccumulator()
+        while True:
+            fetched = cursor.fetchmany(256)
+            if not fetched:
+                break
             for raw_row in fetched:
                 row = [_json_safe(value) for value in raw_row]
-                row_size = len(
-                    json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-                )
-                if payload_bytes + row_size > max_result_bytes:
-                    too_large = True
-                    break
-                rows.append(row)
-                payload_bytes += row_size
-            if too_large:
-                result = ExecutionResult(
-                    status="result_limit",
-                    rows=[],
-                    columns=columns,
-                    elapsed_seconds=elapsed,
-                    query_elapsed_ns=query_elapsed_ns,
-                    error_type="result_limit",
-                    error_message="SQL result exceeded %d encoded bytes" % max_result_bytes,
-                    truncated=True,
-                )
-            else:
-                result = ExecutionResult(
-                    status="success",
-                    rows=rows,
-                    columns=columns,
-                    elapsed_seconds=elapsed,
-                    query_elapsed_ns=query_elapsed_ns,
-                )
+                encoded = canonical_row_bytes(row)
+                if len(encoded) > max_result_bytes:
+                    raise _ResultValueTooLarge(
+                        "One SQL result row exceeded %d encoded bytes"
+                        % max_result_bytes
+                    )
+                fingerprints.add_encoded(encoded)
+                if retain_prefix:
+                    if (
+                        len(rows) >= max_result_rows
+                        or retained_payload_bytes + len(encoded) > max_result_bytes
+                    ):
+                        retain_prefix = False
+                    else:
+                        rows.append(row)
+                        retained_payload_bytes += len(encoded)
+        query_elapsed_ns = time.perf_counter_ns() - query_started_ns
+        elapsed = (time.perf_counter_ns() - worker_started_ns) / 1_000_000_000
+        ordered_fingerprint, unordered_fingerprint = fingerprints.fingerprints()
+        result = ExecutionResult(
+            status="success",
+            rows=rows,
+            columns=columns,
+            row_count=fingerprints.row_count,
+            row_fingerprint_version=ROW_FINGERPRINT_VERSION,
+            ordered_rows_fingerprint=ordered_fingerprint,
+            unordered_rows_fingerprint=unordered_fingerprint,
+            elapsed_seconds=elapsed,
+            query_elapsed_ns=query_elapsed_ns,
+            truncated=fingerprints.row_count > len(rows),
+        )
     except sqlite3.Error as exc:
         if query_started_ns is not None and query_elapsed_ns is None:
             query_elapsed_ns = time.perf_counter_ns() - query_started_ns
@@ -433,6 +455,18 @@ def _execute_worker(
             ),
             query_elapsed_ns=query_elapsed_ns,
         )
+    except _ResultValueTooLarge as exc:
+        if query_started_ns is not None and query_elapsed_ns is None:
+            query_elapsed_ns = time.perf_counter_ns() - query_started_ns
+        elapsed = (time.perf_counter_ns() - worker_started_ns) / 1_000_000_000
+        result = _error_result(
+            "result_limit",
+            "result_limit",
+            str(exc),
+            elapsed,
+            query_elapsed_ns=query_elapsed_ns,
+            truncated=True,
+        )
     except MemoryError:
         if query_started_ns is not None and query_elapsed_ns is None:
             query_elapsed_ns = time.perf_counter_ns() - query_started_ns
@@ -443,6 +477,7 @@ def _execute_worker(
             "SQL worker exceeded its memory allowance",
             elapsed,
             query_elapsed_ns=query_elapsed_ns,
+            truncated=True,
         )
     except Exception as exc:  # The parent still receives a structured worker failure.
         if query_started_ns is not None and query_elapsed_ns is None:
@@ -513,7 +548,7 @@ def execute_sql(
         or max_result_bytes < 1
         or worker_memory_limit_bytes < 1
     ):
-        raise ValueError("result limits must be positive")
+        raise ValueError("execution and retained-result limits must be positive")
     preflight_error = preflight_read_only_sql(sql, max_sql_bytes)
     if preflight_error is not None:
         return preflight_error

@@ -10,6 +10,7 @@ class SQLObservation:
     status: str
     columns: Sequence[str] = field(default_factory=tuple)
     rows: Sequence[Sequence[Any]] = field(default_factory=tuple)
+    row_count: Optional[int] = None
     truncated: bool = False
     error_type: Optional[str] = None
     error_message: Optional[str] = None
@@ -80,5 +81,4 @@ class Trajectory:
             "advantage": self.advantage,
             "reward_result": dict(self.reward_result) if self.reward_result else None,
         }
-
 

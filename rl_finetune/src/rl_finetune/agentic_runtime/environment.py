@@ -68,6 +68,11 @@ class SQLWorkflowEnvironment:
             status=execution.status,
             columns=tuple(execution.columns),
             rows=tuple(tuple(value for value in row) for row in rows),
+            row_count=(
+                execution.row_count
+                if execution.status == "success" and execution.row_count is not None
+                else (len(execution.rows) if execution.status == "success" else None)
+            ),
             truncated=(
                 execution.truncated
                 or len(execution.rows) > self.max_observation_rows
@@ -76,5 +81,4 @@ class SQLWorkflowEnvironment:
             error_message=(execution.error_message or "")[: self.max_error_chars]
             or None,
         )
-
 

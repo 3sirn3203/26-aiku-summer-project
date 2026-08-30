@@ -117,13 +117,19 @@ def _full_contract(run_type: str, selection: str) -> Dict[str, Any]:
             "execution_order_per_example": ["prediction", "gold"],
             "official_evaluation_after_local_execution": True,
         },
+        "result_collection": {
+            "mode": "full_cursor_stream",
+            "retained_rows": "bounded_prefix",
+            "comparison": "row_count_and_streaming_fingerprints",
+            "row_fingerprint_version": 1,
+        },
         "prediction_sql_execution_time": {
             "recorded": True,
             "reward_design_in_scope": False,
             "primary_observation": "predicted_execution.query_elapsed_ns",
             "clock": "time.perf_counter_ns (monotonic)",
             "query_interval_start": "immediately_before_sqlite_connection_execute",
-            "query_interval_end": "after_fetchmany_completion_or_query_error",
+            "query_interval_end": "after_full_cursor_consumption_or_query_error",
             "execution_order": ["prediction", "gold"],
             "cache_policy": "no_explicit_cache_reset; prediction_runs_before_gold",
             "summary_inclusion": "status=success and query_elapsed_ns is available",
@@ -156,7 +162,7 @@ def _write_failure(
     finished = datetime.now(timezone.utc)
     failure = _failure_payload(stage, exc)
     summary = {
-        "schema_version": 4,
+        "schema_version": 5,
         "run_id": manifest["run_id"],
         "run_type": manifest["run_type"],
         "pipeline_pass": False,
@@ -474,7 +480,7 @@ def run_full_evaluation(
             db_id: _sha256_file(path) for db_id, path in db_paths.items()
         }
         manifest = {
-            "schema_version": 4,
+            "schema_version": 5,
             "run_id": run_id,
             "run_type": run_type,
             "status": "initializing",
@@ -956,7 +962,7 @@ def run_full_evaluation(
     pipeline_pass = base_contract_met and mock_contract_met
     finished_wall = datetime.now(timezone.utc)
     summary = {
-        "schema_version": 4,
+        "schema_version": 5,
         "run_id": run_id,
         "run_type": run_type,
         "split": config.spider.split,
