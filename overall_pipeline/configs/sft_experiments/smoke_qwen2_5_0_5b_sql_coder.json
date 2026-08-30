@@ -1,0 +1,62 @@
+{
+  "spider": {
+    "root": "../../../data/spider_data",
+    "examples_file": "dev.json",
+    "tables_file": "tables.json",
+    "database_dir": "database",
+    "split": "dev"
+  },
+  "smoke": {
+    "samples": [
+      {"index": 864, "db_id": "network_1", "category": "single_table_select", "question_sha256": "f2c769010b3b6bf582b49204a53352980de393a2d78fde7281b4fe12c8f01bfb", "gold_sql_sha256": "72bdc66d75b466d16da13b1365b80926bf7713ee64c4382e5d82a5b4de460d2c"},
+      {"index": 702, "db_id": "world_1", "category": "where", "question_sha256": "6279df2ef3713802c1faa8acab924764cd865afbb7f4f76c595890c14b2378e7", "gold_sql_sha256": "f5d1e471ddde0f87f45a12a98910e52eef3767ba956c15d896e4005c8d4f5d07"},
+      {"index": 976, "db_id": "dog_kennels", "category": "order_by_limit", "question_sha256": "60b4d8c56aa0a3e907b16d0fe12f1041b1c3208a09e8f21253086aacd6e87b88", "gold_sql_sha256": "09496132855b66239bce1c5b1757e2b3b3e375fc132038d5121fe46735d1f48f"},
+      {"index": 424, "db_id": "museum_visit", "category": "aggregate", "question_sha256": "c95f44a014a5c297accc822d5e2c12c6df423eb59898c672729745ae28b14896", "gold_sql_sha256": "199fc2389108e5e6651329beedae26cec0fd0d08c8ef88366049f0722413816c"},
+      {"index": 848, "db_id": "orchestra", "category": "group_by", "question_sha256": "3b52658be21e9a368cfaa3f24a820fb58badcb9c9af11d39c6e57dd45414fb1d", "gold_sql_sha256": "cf0827fcd4b1521032bd50e17701f97aeddebc1df47bcb353021aded676070da"},
+      {"index": 1018, "db_id": "singer", "category": "join", "question_sha256": "8fbec14fceccb1da07c5493fd307b95156a38bc0048c300d979766b62c7071a5", "gold_sql_sha256": "b0a0aee65fede55e2a5b068da4fc42544f2eed3180049d7bb9f6ff79c2f36334"},
+      {"index": 409, "db_id": "course_teach", "category": "nested_query", "question_sha256": "949ead0d7eb7a8b6616b2cb7039b3515f75988c96c31ab788be3388ec15687f9", "gold_sql_sha256": "4ab59ff4baefb501e2f8b0df53171a845690c33be1e00726c46958033c2233e6"},
+      {"index": 499, "db_id": "battle_death", "category": "complex", "question_sha256": "819d2bc2f7a8c42ac130d80bd9243ec54d7839dc0b46f2a9027260febec4e368", "gold_sql_sha256": "a9a68b2626057f7ed05a7d27e5c2690c6e44465f90bb274e0921fc0f2a3e7d1b"}
+    ],
+    "minimum_executable": 1
+  },
+  "model": {
+    "source": "local",
+    "id": "../../../sft/models/qwen2.5_0.5b_sql_coder",
+    "revision": "local",
+    "dtype": "float32",
+    "device": "cuda:0",
+    "attention_implementation": "eager",
+    "trust_remote_code": false,
+    "cache_dir": null
+  },
+  "generation": {
+    "do_sample": false,
+    "num_beams": 1,
+    "repetition_penalty": 1.0,
+    "max_time_seconds": 120.0,
+    "max_input_tokens": 8192,
+    "max_new_tokens": 512,
+    "batch_size": 1
+  },
+  "execution": {
+    "timeout_seconds": 5.0,
+    "max_sql_bytes": 100000,
+    "max_result_rows": 10000,
+    "max_result_bytes": 2000000,
+    "worker_memory_limit_bytes": 1073741824
+  },
+  "official_evaluation": {
+    "enabled": true,
+    "evaluator_root": "../../vendor/spider_test_suite_eval",
+    "test_suite_database_root": "../../../data/spider_test_suite/database",
+    "upstream_url": "https://github.com/taoyds/test-suite-sql-eval.git",
+    "upstream_commit": "e97acc546ecbee8fa27fa8dbf025ef61493a876c",
+    "plug_value": false,
+    "keep_distinct": false,
+    "timeout_seconds": 60.0,
+    "nltk_data_dir": "../../../data/nltk_data"
+  },
+  "output": {
+    "directory": "../../outputs/sft_experiments/smoke_qwen2_5_0_5b_sql_coder"
+  }
+}
