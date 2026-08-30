@@ -1,0 +1,10 @@
+.DS_Store
+data/
+code/outputs/
+**/__pycache__/
+*.py[cod]
+.venv/
+upload_server.txt
+sandbox/
+tmp_checkpoints/
+models/
