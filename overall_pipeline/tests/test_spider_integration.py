@@ -30,6 +30,14 @@ class SpiderIntegrationTests(unittest.TestCase):
         self.assertEqual(report.example_count, 1034)
         self.assertEqual(report.database_count, 20)
 
+    def test_generation_view_does_not_expose_gold_metadata(self) -> None:
+        dataset = SpiderDataset(self.config.spider, include_gold=False)
+        example = dataset.get_example(0)
+        self.assertEqual(example.gold_sql, "")
+        self.assertEqual(example.parsed_sql, {})
+        self.assertTrue(example.question)
+        self.assertTrue(dataset.get_schema(example.db_id).table_names)
+
     def test_mock_smoke_never_imports_model_libraries(self) -> None:
         blocked = {"torch", "transformers", "huggingface_hub"}
         imported = []

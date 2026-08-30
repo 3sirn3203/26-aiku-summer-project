@@ -13,7 +13,10 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 from text2sql.config import AppConfig, load_config
 from text2sql.core.models import GenerationRequest, GenerationResult, ParseResult
-from text2sql.core.model_source import LOCAL_IDENTITY_PREFIX
+from text2sql.core.model_source import (
+    ADAPTER_IDENTITY_PREFIX,
+    LOCAL_IDENTITY_PREFIX,
+)
 from text2sql.single_turn.prompt import build_messages
 from text2sql.single_turn.smoke_runner import (
     _atomic_json,
@@ -53,7 +56,13 @@ def round_robin_shards(
     return shards
 
 
-def generation_contract(config: AppConfig, dataset: SpiderDataset) -> Dict[str, Any]:
+def generation_contract(
+    config: AppConfig,
+    dataset: SpiderDataset,
+    *,
+    adapter_contract: Optional[Mapping[str, Any]] = None,
+    workflow_contract: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
     payload = {
         "split": config.spider.split,
         "examples_file": str(dataset.examples_path.resolve()),
@@ -85,6 +94,10 @@ def generation_contract(config: AppConfig, dataset: SpiderDataset) -> Dict[str, 
             "batch_size": config.generation.batch_size,
         },
     }
+    if adapter_contract is not None:
+        payload["adapter"] = dict(adapter_contract)
+    if workflow_contract is not None:
+        payload["workflow"] = dict(workflow_contract)
     return {
         "payload": payload,
         "sha256": _sha256_bytes(_json_bytes(payload)),
@@ -116,7 +129,7 @@ def run_generation_worker(
     backend_name: str,
     allow_model_download: bool,
 ) -> Dict[str, Any]:
-    """Generate one assigned shard without opening or executing any SQLite DB."""
+    """Run one isolated generation shard for the selected backend."""
 
     assignment = json.loads(assignment_path.read_text(encoding="utf-8"))
     if not isinstance(assignment, dict):
@@ -144,8 +157,48 @@ def run_generation_worker(
             model=replace(config.model, checkpoint_identity=identity),
         )
     config = replace(config, model=replace(config.model, device="cuda:0"))
-    dataset = SpiderDataset(config.spider)
-    contract = generation_contract(config, dataset)
+    # Real-model workers receive only question/schema metadata. Gold SQL and
+    # parsed gold structures remain in the parent evaluation process.
+    dataset = SpiderDataset(config.spider, include_gold=backend_name == "mock")
+    adapter_contract = assignment.get("adapter")
+    if backend_name == "peft" or (
+        backend_name == "two_turn" and adapter_contract is not None
+    ):
+        if not isinstance(adapter_contract, dict):
+            raise DistributedGenerationError(
+                "PEFT worker assignment is missing adapter metadata"
+            )
+        identity = adapter_contract.get("identity")
+        if not isinstance(identity, str) or not identity.startswith(
+            ADAPTER_IDENTITY_PREFIX
+        ):
+            raise DistributedGenerationError(
+                "PEFT worker assignment has an invalid adapter identity"
+            )
+        adapter_path = Path(str(adapter_contract.get("path", ""))).resolve()
+    else:
+        adapter_contract = None
+        adapter_path = None
+    workflow_contract = assignment.get("workflow")
+    worker_context = assignment.get("worker_context")
+    if backend_name == "two_turn":
+        if not isinstance(workflow_contract, dict):
+            raise DistributedGenerationError(
+                "two-turn worker assignment is missing its workflow contract"
+            )
+        if not isinstance(worker_context, dict):
+            raise DistributedGenerationError(
+                "two-turn worker assignment is missing worker context"
+            )
+    else:
+        workflow_contract = None
+        worker_context = None
+    contract = generation_contract(
+        config,
+        dataset,
+        adapter_contract=adapter_contract,
+        workflow_contract=workflow_contract,
+    )
     if contract["sha256"] != assignment.get("generation_contract_sha256"):
         raise DistributedGenerationError(
             "worker generation contract does not match the parent"
@@ -182,10 +235,14 @@ def run_generation_worker(
                 "worker split mismatch at index %d" % index
             )
         examples.append(example)
-    mock_responses = {
-        "%s:%d" % (example.split, example.index): example.gold_sql
-        for example in examples
-    }
+    mock_responses = (
+        {
+            "%s:%d" % (example.split, example.index): example.gold_sql
+            for example in examples
+        }
+        if backend_name == "mock"
+        else {}
+    )
     backend = None
     try:
         backend = _create_backend(
@@ -193,6 +250,14 @@ def run_generation_worker(
             config,
             mock_responses=mock_responses,
             allow_model_download=allow_model_download,
+            adapter_dir=adapter_path,
+            expected_adapter_identity=(
+                str(adapter_contract["identity"])
+                if adapter_contract is not None
+                else None
+            ),
+            workflow_contract=workflow_contract,
+            worker_context=worker_context,
         )
         status["backend"] = backend.metadata()
         status["status"] = "generating"
@@ -238,6 +303,8 @@ def run_generation_worker(
                     "sql_parsing": parsed.to_dict(),
                     "generation_contract_sha256": contract["sha256"],
                 }
+                if backend_name == "two_turn":
+                    record["workflow"] = backend.pop_trace(example_id)
                 _write_jsonl_record(shard_handle, record)
                 status["completed_examples"] += 1
                 _atomic_json(status_path, status)
@@ -437,6 +504,9 @@ def launch_generation_attempt(
     generation_contract_sha256: str,
     source_tree_sha256: str,
     model_checkpoint_identity: Optional[str] = None,
+    adapter_contract: Optional[Mapping[str, Any]] = None,
+    workflow_contract: Optional[Mapping[str, Any]] = None,
+    worker_context: Optional[Mapping[str, Any]] = None,
     startup_delay_seconds: float = 0.0,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     message_callback: Optional[Callable[[str], None]] = None,
@@ -507,6 +577,17 @@ def launch_generation_attempt(
                 "generation_contract_sha256": generation_contract_sha256,
                 "source_tree_sha256": source_tree_sha256,
                 "model_checkpoint_identity": model_checkpoint_identity,
+                "adapter": (
+                    dict(adapter_contract) if adapter_contract is not None else None
+                ),
+                "workflow": (
+                    dict(workflow_contract)
+                    if workflow_contract is not None
+                    else None
+                ),
+                "worker_context": (
+                    dict(worker_context) if worker_context is not None else None
+                ),
             }
             _atomic_json(assignment_path, assignment)
             command = [
@@ -558,7 +639,7 @@ def launch_generation_attempt(
                     "pid": process.pid,
                 }
             )
-            if backend_name == "hf":
+            if backend_name in {"hf", "peft", "two_turn"}:
                 _wait_for_worker_ready(
                     process,
                     status_path,
@@ -635,13 +716,13 @@ def launch_generation_attempt(
     resolved_revisions = {
         status.get("backend", {}).get("resolved_revision")
         for status in statuses
-        if backend_name == "hf"
+        if backend_name in {"hf", "peft", "two_turn"}
     }
-    if backend_name == "hf" and (
+    if backend_name in {"hf", "peft", "two_turn"} and (
         None in resolved_revisions or len(resolved_revisions) != 1
     ):
         raise DistributedGenerationError(
-            "HF workers did not resolve one identical model revision"
+            "model workers did not resolve one identical base revision"
         )
     return {
         "attempt": attempt,

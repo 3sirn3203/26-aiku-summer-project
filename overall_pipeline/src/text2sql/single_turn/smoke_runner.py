@@ -305,6 +305,10 @@ def _create_backend(
     config: AppConfig,
     mock_responses: Mapping[str, str],
     allow_model_download: bool,
+    adapter_dir: Optional[Path] = None,
+    expected_adapter_identity: Optional[str] = None,
+    workflow_contract: Optional[Mapping[str, Any]] = None,
+    worker_context: Optional[Mapping[str, Any]] = None,
 ) -> GenerationBackend:
     if backend_name == "mock":
         return GoldMockBackend(mock_responses)
@@ -316,6 +320,35 @@ def _create_backend(
             model_config=config.model,
             generation_config=config.generation,
             allow_model_download=allow_model_download,
+        )
+    if backend_name == "peft":
+        if adapter_dir is None:
+            raise ValueError("PEFT backend requires an adapter directory")
+        # Lazy import keeps torch/transformers/peft out of parent processes.
+        from text2sql.core.backends.peft import PeftAdapterBackend
+
+        return PeftAdapterBackend(
+            model_config=config.model,
+            generation_config=config.generation,
+            adapter_dir=adapter_dir,
+            allow_model_download=allow_model_download,
+            expected_adapter_identity=expected_adapter_identity,
+        )
+    if backend_name == "two_turn":
+        if workflow_contract is None or worker_context is None:
+            raise ValueError("two-turn backend requires workflow and worker context")
+        # The independent RL package is an optional runtime dependency.
+        from rl_finetune.two_turn_backend import TwoTurnWorkflowBackend
+
+        return TwoTurnWorkflowBackend(
+            model_config=config.model,
+            generation_config=config.generation,
+            execution_config=config.execution,
+            workflow_contract=workflow_contract,
+            database_paths=worker_context.get("database_paths", {}),
+            adapter_dir=adapter_dir,
+            allow_model_download=allow_model_download,
+            expected_adapter_identity=expected_adapter_identity,
         )
     raise ValueError("Unknown backend: %s" % backend_name)
 

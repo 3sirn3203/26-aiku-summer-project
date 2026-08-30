@@ -30,6 +30,7 @@ from text2sql.core.official_eval import (
 from text2sql.core.progress import ProgressReporter
 from text2sql.core.model_source import (
     expected_model_identity,
+    inspect_peft_adapter,
     prepare_model_config,
     validate_download_policy,
 )
@@ -302,6 +303,8 @@ def run_full_evaluation(
     selection: str = "all",
     progress: Optional[ProgressReporter] = None,
     invocation: Optional[Mapping[str, Any]] = None,
+    adapter_dir: Optional[Path] = None,
+    workflow_contract: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Evaluate all or fixed-smoke examples with data-parallel inference."""
 
@@ -312,10 +315,51 @@ def run_full_evaluation(
     if selection not in {"all", "smoke"}:
         raise ValueError("selection must be 'all' or 'smoke'")
     local_checkpoint = None
+    adapter_inspection = None
     if backend_name == "hf":
         validate_download_policy((config.model,), allow_model_download)
         prepared_model, local_checkpoint = prepare_model_config(config.model)
         config = replace(config, model=prepared_model)
+    elif backend_name == "peft":
+        if config.model.source != "hub":
+            raise ValueError("PEFT evaluation requires model.source=hub")
+        if adapter_dir is None:
+            raise ValueError("PEFT evaluation requires --adapter-dir")
+        validate_download_policy((config.model,), allow_model_download)
+        adapter_inspection = inspect_peft_adapter(
+            adapter_dir,
+            expected_base_model_id=config.model.model_id,
+            expected_base_model_revision=config.model.revision,
+        )
+        if not adapter_inspection.ok or adapter_inspection.identity is None:
+            raise ValueError(
+                "invalid PEFT adapter %s: %s"
+                % (adapter_inspection.path, "; ".join(adapter_inspection.errors))
+            )
+    elif backend_name == "two_turn":
+        if config.model.source != "hub":
+            raise ValueError("two-turn evaluation requires model.source=hub")
+        if workflow_contract is None:
+            raise ValueError("two-turn evaluation requires a workflow contract")
+        validate_download_policy((config.model,), allow_model_download)
+        if adapter_dir is not None:
+            adapter_inspection = inspect_peft_adapter(
+                adapter_dir,
+                expected_base_model_id=config.model.model_id,
+                expected_base_model_revision=config.model.revision,
+            )
+            if not adapter_inspection.ok or adapter_inspection.identity is None:
+                raise ValueError(
+                    "invalid PEFT adapter %s: %s"
+                    % (
+                        adapter_inspection.path,
+                        "; ".join(adapter_inspection.errors),
+                    )
+                )
+    elif adapter_dir is not None:
+        raise ValueError("adapter_dir is valid only with backend_name='peft'")
+    elif workflow_contract is not None:
+        raise ValueError("workflow_contract is valid only for two-turn evaluation")
     started_wall = datetime.now(timezone.utc)
     started_monotonic = time.monotonic()
     reporter = progress if progress is not None else ProgressReporter(enabled=False)
@@ -364,11 +408,31 @@ def run_full_evaluation(
         else None
     )
     source = _source_snapshot()
-    generation = generation_contract(config, dataset)
+    adapter_contract = (
+        adapter_inspection.to_dict() if adapter_inspection is not None else None
+    )
+    generation = generation_contract(
+        config,
+        dataset,
+        adapter_contract=adapter_contract,
+        workflow_contract=workflow_contract,
+    )
     db_paths = {
         db_id: dataset.database_path(db_id)
         for db_id in sorted({example.db_id for example in selected_examples})
     }
+    worker_context = (
+        {
+            "database_paths": {
+                "%s:%d" % (example.split, example.index): str(
+                    dataset.database_path(example.db_id)
+                )
+                for example in selected_examples
+            }
+        }
+        if backend_name == "two_turn"
+        else None
+    )
 
     if resume_run is not None:
         if _SAFE_RUN_NAME.fullmatch(resume_run) is None:
@@ -418,7 +482,18 @@ def run_full_evaluation(
             "invocation": dict(invocation or {"interface": "python_api"}),
             "backend_selector": backend_name,
             "gpu_ids": list(gpu_ids),
-            "contract": _full_contract(run_type, selection),
+            "contract": (
+                {
+                    **_full_contract(run_type, selection),
+                    "single_turn": False,
+                    "generation_calls_per_example": 2,
+                    "execution_feedback": True,
+                    "self_correction": True,
+                    "workflow": dict(workflow_contract or {}),
+                }
+                if backend_name == "two_turn"
+                else _full_contract(run_type, selection)
+            ),
             "config_source_path": str(config.source_path),
             "source_config": config.raw,
             "source_config_sha256": source_config_sha256,
@@ -434,6 +509,7 @@ def run_full_evaluation(
             },
             "source": source,
             "local_checkpoint": local_checkpoint,
+            "adapter": adapter_contract,
             "generation": {
                 "contract": generation["payload"],
                 "contract_sha256": generation["sha256"],
@@ -516,7 +592,14 @@ def run_full_evaluation(
                 generation_contract_sha256=generation["sha256"],
                 source_tree_sha256=source["python_tree_sha256"],
                 model_checkpoint_identity=config.model.checkpoint_identity,
-                startup_delay_seconds=1.0 if backend_name == "hf" else 0.0,
+                adapter_contract=adapter_contract,
+                workflow_contract=workflow_contract,
+                worker_context=worker_context,
+                startup_delay_seconds=(
+                    1.0
+                    if backend_name in {"hf", "peft", "two_turn"}
+                    else 0.0
+                ),
                 progress_callback=(
                     lambda completed, _remaining_total: reporter.update(
                         generation_initial + completed
@@ -536,11 +619,31 @@ def run_full_evaluation(
             generation["sha256"],
         )
         _atomic_jsonl(run_dir / "generation_records.jsonl", generation_records)
+        if backend_name == "two_turn":
+            _atomic_jsonl(
+                run_dir / "trajectories.jsonl",
+                [
+                    {
+                        "schema_version": record["schema_version"],
+                        "run_id": record["run_id"],
+                        "example_id": record["example_id"],
+                        "split": record["split"],
+                        "index": record["index"],
+                        "db_id": record["db_id"],
+                        "question": record["question"],
+                        "prompt_sha256": record["prompt_sha256"],
+                        "workflow": record["workflow"],
+                        "generation": record["generation"],
+                        "sql_parsing": record["sql_parsing"],
+                    }
+                    for record in generation_records
+                ],
+            )
         manifest["generation"]["completed_examples"] = len(generation_records)
         manifest["generation"]["shard_warnings"] = sorted(set(shard_warnings))
         worker_statuses = _worker_backend_metadata(run_dir)
         manifest["generation"]["worker_statuses"] = worker_statuses
-        if backend_name == "hf":
+        if backend_name in {"hf", "peft", "two_turn"}:
             revisions = {
                 status.get("backend", {}).get("resolved_revision")
                 for status in worker_statuses
@@ -558,6 +661,16 @@ def run_full_evaluation(
                     "resolved model identity does not match the configured checkpoint"
                 )
             manifest["generation"]["resolved_revision"] = resolved_revision
+            if adapter_inspection is not None:
+                adapter_identities = {
+                    status.get("backend", {}).get("adapter", {}).get("identity")
+                    for status in worker_statuses
+                    if isinstance(status.get("backend"), Mapping)
+                }
+                if adapter_identities != {adapter_inspection.identity}:
+                    raise DistributedGenerationError(
+                        "generation workers did not load the contracted adapter"
+                    )
         reporter.update(total)
         reporter.finish()
     except Exception as exc:
@@ -914,5 +1027,7 @@ def run_full_evaluation(
         "summary": "summary.json",
         "shards": "shards/",
     }
+    if backend_name == "two_turn":
+        manifest["artifacts"]["trajectories"] = "trajectories.jsonl"
     _atomic_json(run_dir / "run_manifest.json", manifest)
     return {"run_directory": str(run_dir), "summary": summary}

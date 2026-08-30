@@ -39,8 +39,9 @@ def _quote_identifier(identifier: str) -> str:
 
 
 class SpiderDataset:
-    def __init__(self, config: SpiderConfig):
+    def __init__(self, config: SpiderConfig, *, include_gold: bool = True):
         self.config = config
+        self.include_gold = include_gold
         self.root = config.root
         self.examples_path = self.root / config.examples_file
         self.tables_path = self.root / config.tables_file
@@ -56,13 +57,15 @@ class SpiderDataset:
                 raise SpiderDataError("Example %d is not an object" % index)
             db_id = record.get("db_id")
             question = record.get("question")
-            query = record.get("query")
-            parsed_sql = record.get("sql", {})
+            query = record.get("query") if self.include_gold else ""
+            parsed_sql = record.get("sql", {}) if self.include_gold else {}
             if not isinstance(db_id, str) or not _SAFE_DB_ID.fullmatch(db_id):
                 raise SpiderDataError("Example %d has an unsafe or invalid db_id" % index)
             if not isinstance(question, str) or not question.strip():
                 raise SpiderDataError("Example %d has no question" % index)
-            if not isinstance(query, str) or not query.strip():
+            if self.include_gold and (
+                not isinstance(query, str) or not query.strip()
+            ):
                 raise SpiderDataError("Example %d has no gold SQL" % index)
             if not isinstance(parsed_sql, dict):
                 raise SpiderDataError("Example %d has invalid parsed SQL metadata" % index)

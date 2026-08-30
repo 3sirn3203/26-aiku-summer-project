@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "source_root": "~/Downloads/code",
+  "migration_policy": {
+    "rl_algorithm_changes": false,
+    "allowed_changes": [
+      "python package namespace",
+      "repository-relative paths",
+      "current evaluation integration"
+    ],
+    "historical_outputs_copied": false
+  },
+  "files": [
+    {
+      "source": "src/text2sql/rl_finetune/__init__.py",
+      "sha256": "5faeba99a8dfe92521c5ab5674041063f220df03edd34bdbc568093ef0c914f0",
+      "destination": "rl_finetune/src/rl_finetune/__init__.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/adapter_backend.py",
+      "sha256": "319aa0e90d6f46f28f83abca9c37c51232fd06e0367ce89dfe890d69ba4ea520",
+      "destination": "rl_finetune/src/rl_finetune/adapter_backend.py",
+      "disposition": "adapted_to_current_distributed_evaluation"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/agentic_grpo_trainer.py",
+      "sha256": "e14be8fb122ee3146bcbeeaa50293c87a9a5ad4cf08db7778d52f93f163c61cc",
+      "destination": "rl_finetune/src/rl_finetune/agentic_grpo_trainer.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/dataset.py",
+      "sha256": "2c3d0408c57d555cf459f63b6b769fa5193f78cc9bb4af3c668b53bb02118023",
+      "destination": "rl_finetune/src/rl_finetune/dataset.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/evaluate_adapter.py",
+      "sha256": "b564b7e5e14c2137a2f0e3eb0fec19543f2db773f820d7cb02642a955f5267ca",
+      "destination": "rl_finetune/src/rl_finetune/evaluate_adapter.py",
+      "disposition": "adapted_to_current_distributed_evaluation"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/evaluate_two_turn_base.py",
+      "sha256": "0e45f8974152e1e874d55a0cd336801724765533c1edec4e19a7116d29b48a75",
+      "destination": "rl_finetune/src/rl_finetune/evaluate_two_turn_base.py",
+      "disposition": "adapted_to_distributed_two_turn_evaluation"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/rewards.py",
+      "sha256": "6dc0e1250873dbe32166ba18abff0b69ee95ff8398d967332b08ce62dc3daa69",
+      "destination": "rl_finetune/src/rl_finetune/rewards.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/train_agentic_grpo_lora.py",
+      "sha256": "780b8c4ba956f6a12a1a77127b046c80b0a47bb2600df34c8516e8ad5c361d3a",
+      "destination": "rl_finetune/src/rl_finetune/train_agentic_grpo_lora.py",
+      "disposition": "adapted_namespace_and_adapter_provenance"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/train_grpo_lora.py",
+      "sha256": "3158f17c983dbcc15c5fe7a56f31fe06be69483f1785a1a3b07d55a99b8547ad",
+      "destination": "rl_finetune/src/rl_finetune/train_grpo_lora.py",
+      "disposition": "adapted_namespace_and_adapter_provenance"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/training_runtime.py",
+      "sha256": "e3d146bd33d3223e09f8c06cab08ce7bc9d7c526a5e5df807ac3a5db4e5217d8",
+      "destination": "rl_finetune/src/rl_finetune/training_runtime.py",
+      "disposition": "adapted_namespace_paths_and_adapter_provenance"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/trajectory_grpo.py",
+      "sha256": "204626d5ac92a7afcbb2bb355d3fc66e93eb25a39cf169cbe66dc292804acf66",
+      "destination": "rl_finetune/src/rl_finetune/trajectory_grpo.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/trajectory_reward.py",
+      "sha256": "f99017ec812735b76367ab37a6d6c7a38c3f69423e8a9062c43103fdbedcbe4f",
+      "destination": "rl_finetune/src/rl_finetune/trajectory_reward.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/trl_reward.py",
+      "sha256": "80c80fd2bd4a36099e5ad279af3e55d6cadabf619e2161fa0e486e583722d777",
+      "destination": "rl_finetune/src/rl_finetune/trl_reward.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/tests/test_agentic_checkpoint.py",
+      "sha256": "f2a4d871d3ad55e35df19b74837fbde56e698ad2c64cd4932f9b187133cc1c92",
+      "destination": "rl_finetune/tests/test_agentic_checkpoint.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/tests/test_agentic_workflow.py",
+      "sha256": "756d1461312641eea20ff9a91ae3086765c3c9302e0cbc1d11e6d0b4c8eeb795",
+      "destination": "rl_finetune/tests/test_agentic_workflow.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/tests/test_rewards.py",
+      "sha256": "a8f8a1693c735734dc7da340f866f9e4ffdc17b9814528e7214efd9ad7a70077",
+      "destination": "rl_finetune/tests/test_rewards.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/tests/test_trajectory_grpo.py",
+      "sha256": "b48430f220fd6543120aac6c00df01caae1ddadcaba4b78f9762c981f49abe2d",
+      "destination": "rl_finetune/tests/test_trajectory_grpo.py",
+      "disposition": "adapted_namespace_only"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/README.md",
+      "sha256": "a75ea922403699557371b8597ef073808903e01f7c5ef52036d1972b617ed345",
+      "destination": "rl_finetune/README.md",
+      "disposition": "adapted_namespace_paths_and_documentation"
+    },
+    {
+      "source": "src/text2sql/rl_finetune/AGENTIC_GRPO.md",
+      "sha256": "f1063ce9ed8b9c3f76f5f56f5bfbfac4bedecbc382c866016b7fb6b0f7f428c7",
+      "destination": "rl_finetune/AGENTIC_GRPO.md",
+      "disposition": "adapted_namespace_paths_and_documentation"
+    },
+    {
+      "source": "src/text2sql/multi_turn_agent/__init__.py",
+      "sha256": "ee7a435d85398c36f0b24f2014e6ccd83be7dbcdd292413d7954aa5f97e5ce7a",
+      "destination": "rl_finetune/src/rl_finetune/agentic_runtime/__init__.py",
+      "disposition": "relocated_namespace_only"
+    },
+    {
+      "source": "src/text2sql/multi_turn_agent/environment.py",
+      "sha256": "a300079fe1fa735f7a8e8a791ce62e56ac1b7f89e2ba983a46cb672db3a8ee55",
+      "destination": "rl_finetune/src/rl_finetune/agentic_runtime/environment.py",
+      "disposition": "relocated_namespace_only"
+    },
+    {
+      "source": "src/text2sql/multi_turn_agent/models.py",
+      "sha256": "867ebfcf61dcb1effc070ca5000fa108951c0019de6293ff642a950a75ee1a4e",
+      "destination": "rl_finetune/src/rl_finetune/agentic_runtime/models.py",
+      "disposition": "relocated_namespace_only"
+    },
+    {
+      "source": "src/text2sql/multi_turn_agent/prompt.py",
+      "sha256": "051ff6f282920cc41030755e251d91bf189088fda1a817661cde66243e4f4742",
+      "destination": "rl_finetune/src/rl_finetune/agentic_runtime/prompt.py",
+      "disposition": "relocated_namespace_only"
+    },
+    {
+      "source": "src/text2sql/multi_turn_agent/rollout.py",
+      "sha256": "92fcbb660a012a2734d360fad220e18031e74945665b56dc95e2364916af9004",
+      "destination": "rl_finetune/src/rl_finetune/agentic_runtime/rollout.py",
+      "disposition": "relocated_namespace_only"
+    },
+    {
+      "source": "requirements-rl-finetune.txt",
+      "sha256": "ba748ac0a9c16a65d6c0655112409b6fa3d30b86b847667fca9f556854e06e35",
+      "destination": "rl_finetune/requirements-rl-finetune.txt",
+      "disposition": "adapted_paths_only"
+    },
+    {
+      "source": "environment-rl-finetune.yml",
+      "sha256": "6283fa73cdea252a26dc3961f9a492b69970cb9b03f05c9d76ee20cbabc390db",
+      "destination": "rl_finetune/environment-rl-finetune.yml",
+      "disposition": "adapted_paths_only"
+    }
+  ],
+  "new_integration_files": [
+    "overall_pipeline/src/text2sql/core/backends/peft.py",
+    "rl_finetune/src/rl_finetune/two_turn_backend.py"
+  ],
+  "excluded": [
+    {
+      "source": "outputs/rl_finetune/**",
+      "reason": "generated smoke artifacts"
+    },
+    {
+      "source": "src/spider_single_turn_smoke.egg-info/**",
+      "reason": "generated packaging metadata"
+    },
+    {
+      "source": "**/__pycache__/**",
+      "reason": "generated Python cache"
+    },
+    {
+      "source": "vendor/**",
+      "reason": "current repository already owns the pinned evaluator"
+    },
+    {
+      "source": "src/text2sql/{core,single_turn,multi_turn_agent}/**",
+      "reason": "legacy pipeline must not overwrite the current implementation; five RL-only two-turn package files are mapped explicitly above"
+    }
+  ]
+}

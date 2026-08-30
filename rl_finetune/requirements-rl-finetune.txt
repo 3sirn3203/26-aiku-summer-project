@@ -1,0 +1,19 @@
+# Install from the rl_finetune/ directory after activating the conda environment.
+#
+# PyTorch is intentionally not listed here. Install the server-compatible CUDA
+# wheel first, for example:
+#   python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+#
+# The TRL stack is pinned to versions compatible with torch 2.5.1. Newer TRL
+# releases may require torch FSDP APIs that are not available in torch 2.5.1.
+
+transformers==4.46.3
+datasets>=2.21.0,<4
+peft==0.14.0
+trl==0.14.0
+accelerate>=0.34.0,<2
+
+nltk==3.9.1
+sqlparse==0.5.3
+tqdm==4.67.1
+

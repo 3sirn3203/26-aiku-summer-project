@@ -125,7 +125,7 @@ bundle이 아니므로 대체해서는 안 됩니다.
 `torch`, `transformers` 또는 모델을 설치하지 않습니다.
 
 ```bash
-cd code
+cd overall_pipeline
 python3 -m venv .venv
 .venv/bin/python -m pip install pip==25.1.1
 .venv/bin/python -m pip install -e '.[official-eval]'
@@ -205,7 +205,7 @@ limit도 적용됩니다. 로컬 파이프라인은 현재 macOS Python 3.9에�
 ```bash
 conda create -n spider-smoke python=3.11 -y
 conda activate spider-smoke
-cd code
+cd overall_pipeline
 python -m pip install pip==25.1.1
 ```
 
@@ -379,6 +379,27 @@ fingerprint를 확인합니다. 실행 시 inference 관련 파일 전체의 SHA
 accuracy=`null`로 기록하며 pipeline을 실패시킵니다. Exact Match가 완료되고
 Test Suite만 실패한 경우처럼 두 공식 metric의 유효성은 서로 독립적으로
 보존합니다.
+
+## RL adapter 평가 연동
+
+루트 `rl_finetune/`에서 생성한 PEFT adapter는 기존 분산 평가와 동일한 SQL
+실행, 공식 Spider metric, query timing, VM-step 계약으로 평가합니다.
+
+```bash
+python -m text2sql evaluate \
+  --config configs/evaluate_dev.json \
+  --backend peft \
+  --adapter-dir ../rl_finetune/outputs/<run>/adapter \
+  --gpus 0,1,2,3,4,5,6,7 \
+  --selection all \
+  --output-dir ../rl_finetune/outputs/evaluation \
+  --run-name <evaluation-run>
+```
+
+`--adapter-dir`은 `--backend peft`에서만 허용됩니다. Adapter content hash와
+base model revision이 run contract에 포함되므로 adapter가 바뀐 기존 run은
+resume하지 않습니다. Two-turn RL 평가는 `rl_finetune`의 별도 entrypoint를
+사용하지만 final SQL 평가는 이 파이프라인의 부모 평가 단계를 공유합니다.
 
 ## 전체 dev zero-shot 평가
 

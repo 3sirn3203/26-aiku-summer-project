@@ -176,6 +176,56 @@ class CliTests(unittest.TestCase):
         self.assertIn("positive and finite", stderr.getvalue())
         run_mock.assert_not_called()
 
+    def test_peft_evaluate_requires_and_forwards_adapter_directory(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = Path(directory) / "adapter"
+            fake_result = {
+                "run_directory": str(Path(directory) / "peft-run"),
+                "summary": {"pipeline_pass": True},
+            }
+            with mock.patch(
+                "text2sql.single_turn.evaluation_runner.run_full_evaluation",
+                return_value=fake_result,
+            ) as run_mock, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exit_code = main(
+                    [
+                        "evaluate",
+                        "--config",
+                        str(self.config_path),
+                        "--backend",
+                        "peft",
+                        "--adapter-dir",
+                        str(adapter),
+                        "--gpus",
+                        "0,1",
+                        "--run-name",
+                        "peft-run",
+                    ]
+                )
+            self.assertEqual(exit_code, 0, stderr.getvalue())
+            self.assertEqual(run_mock.call_args.kwargs["adapter_dir"], adapter.resolve())
+
+        stderr = io.StringIO()
+        with mock.patch(
+            "text2sql.single_turn.evaluation_runner.run_full_evaluation"
+        ) as run_mock, contextlib.redirect_stderr(stderr):
+            exit_code = main(
+                [
+                    "evaluate",
+                    "--config",
+                    str(self.config_path),
+                    "--backend",
+                    "peft",
+                    "--gpus",
+                    "0",
+                ]
+            )
+        self.assertEqual(exit_code, 2)
+        self.assertIn("--adapter-dir is required", stderr.getvalue())
+        run_mock.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

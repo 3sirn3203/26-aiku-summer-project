@@ -60,7 +60,14 @@ def _parser() -> argparse.ArgumentParser:
         help="run zero-shot inference and evaluation on the full configured split",
     )
     evaluate.add_argument("--config", type=Path, required=True)
-    evaluate.add_argument("--backend", choices=("mock", "hf"), default="hf")
+    evaluate.add_argument(
+        "--backend", choices=("mock", "hf", "peft"), default="hf"
+    )
+    evaluate.add_argument(
+        "--adapter-dir",
+        type=Path,
+        help="local PEFT adapter directory; required with --backend peft",
+    )
     evaluate.add_argument(
         "--selection",
         choices=("all", "smoke"),
@@ -84,7 +91,7 @@ def _parser() -> argparse.ArgumentParser:
     evaluate.add_argument(
         "--allow-model-download",
         action="store_true",
-        help="allow Hugging Face downloads in every GPU worker (hf only)",
+        help="allow base-model downloads in every GPU worker (hf/peft only)",
     )
     evaluate.add_argument(
         "--no-progress",
@@ -170,7 +177,9 @@ def _parser() -> argparse.ArgumentParser:
     worker.add_argument("--assignment", type=Path, required=True)
     worker.add_argument("--shard", type=Path, required=True)
     worker.add_argument("--status", type=Path, required=True)
-    worker.add_argument("--backend", choices=("mock", "hf"), required=True)
+    worker.add_argument(
+        "--backend", choices=("mock", "hf", "peft", "two_turn"), required=True
+    )
     worker.add_argument("--allow-model-download", action="store_true")
     return parser
 
@@ -368,8 +377,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             from text2sql.single_turn.distributed import parse_gpu_ids
             from text2sql.single_turn.evaluation_runner import run_full_evaluation
 
-            if args.allow_model_download and args.backend != "hf":
-                raise ConfigError("--allow-model-download is valid only with --backend hf")
+            if args.allow_model_download and args.backend not in {"hf", "peft"}:
+                raise ConfigError(
+                    "--allow-model-download is valid only with --backend hf or peft"
+                )
+            if args.backend == "peft" and args.adapter_dir is None:
+                raise ConfigError("--adapter-dir is required with --backend peft")
+            if args.backend != "peft" and args.adapter_dir is not None:
+                raise ConfigError("--adapter-dir is valid only with --backend peft")
             if (
                 not math.isfinite(args.progress_interval_seconds)
                 or args.progress_interval_seconds <= 0
@@ -403,6 +418,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     resume_run=args.resume_run,
                     selection=args.selection,
                     progress=progress,
+                    adapter_dir=(
+                        args.adapter_dir.resolve()
+                        if args.adapter_dir is not None
+                        else None
+                    ),
                     invocation={
                         "interface": "cli",
                         "command": "evaluate",
@@ -415,6 +435,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         "run_name": args.run_name,
                         "resume_run": args.resume_run,
                         "allow_model_download": args.allow_model_download,
+                        "adapter_directory": (
+                            str(args.adapter_dir.resolve())
+                            if args.adapter_dir is not None
+                            else None
+                        ),
                         "progress_enabled": not args.no_progress,
                         "progress_interval_seconds": args.progress_interval_seconds,
                     },
@@ -426,8 +451,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.command == "_generation-worker":
             from text2sql.single_turn.distributed import run_generation_worker
 
-            if args.allow_model_download and args.backend != "hf":
-                raise ConfigError("--allow-model-download is valid only with --backend hf")
+            if args.allow_model_download and args.backend not in {
+                "hf",
+                "peft",
+                "two_turn",
+            }:
+                raise ConfigError(
+                    "--allow-model-download is invalid for the selected backend"
+                )
             run_generation_worker(
                 config_path=args.config,
                 assignment_path=args.assignment,
