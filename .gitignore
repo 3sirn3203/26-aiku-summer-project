@@ -1,6 +1,8 @@
 .DS_Store
-/data/
-/sft/data/
+/data/*
+!/data/.gitkeep
+/sft/data/*
+!/sft/data/.gitkeep
 overall_pipeline/data/*
 !overall_pipeline/data/.gitkeep
 code/outputs/
@@ -8,6 +10,9 @@ code/outputs/
 *.py[cod]
 .venv/
 upload_server.txt
-sandbox/
-tmp_checkpoints/
-models/
+**/sandbox/*
+!**/sandbox/.gitkeep
+**/tmp_checkpoints/*
+!**/tmp_checkpoints/.gitkeep
+**/models/*
+!**/models/.gitkeep
