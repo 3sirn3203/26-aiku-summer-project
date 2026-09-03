@@ -18,6 +18,7 @@ from text2sql.core.official_eval import (
     _run_worker,
     _worker_environment,
     evaluate_official,
+    is_official_infrastructure_failure,
     validate_official_environment,
 )
 from text2sql.core.spider import SpiderDataset
@@ -242,7 +243,7 @@ class OfficialEvaluationTests(unittest.TestCase):
         _real_official_assets_available(),
         "pinned official-evaluation dependencies/data are not installed",
     )
-    def test_metric_validity_is_independent_when_test_suite_times_out(self) -> None:
+    def test_test_suite_timeout_is_counted_as_an_incorrect_case(self) -> None:
         example = self.dataset.get_example(self.config.smoke.samples[0].index)
 
         def fake_worker(operation, *_args, **_kwargs):
@@ -284,11 +285,14 @@ class OfficialEvaluationTests(unittest.TestCase):
                 max_sql_bytes=self.config.execution.max_sql_bytes,
                 preflight_report=self._preflight([example.db_id]),
             )
-        self.assertFalse(result["ok"])
+        self.assertTrue(result["ok"])
         self.assertTrue(result["metrics"]["exact_set_match"]["valid"])
-        self.assertFalse(result["metrics"]["test_suite"]["valid"])
+        self.assertTrue(result["metrics"]["test_suite"]["valid"])
         self.assertEqual(
-            result["metrics"]["test_suite"]["infrastructure_failures"], 1
+            result["metrics"]["test_suite"]["classified_examples"], 1
+        )
+        self.assertEqual(
+            result["metrics"]["test_suite"]["infrastructure_failures"], 0
         )
 
     def test_duplicate_ids_and_path_traversal_are_rejected(self) -> None:
@@ -327,6 +331,26 @@ class OfficialEvaluationTests(unittest.TestCase):
         self.assertEqual(result["status"], "evaluator_timeout")
         self.assertFalse(result["match"])
         self.assertGreaterEqual(result["parent_elapsed_ns"], 0)
+
+    def test_only_test_suite_timeout_is_a_scored_failure(self) -> None:
+        self.assertFalse(
+            is_official_infrastructure_failure(
+                "test_suite", "evaluator_timeout"
+            )
+        )
+        self.assertTrue(
+            is_official_infrastructure_failure(
+                "exact_set_match", "evaluator_timeout"
+            )
+        )
+        self.assertTrue(
+            is_official_infrastructure_failure(
+                "test_suite", "evaluator_error"
+            )
+        )
+        self.assertTrue(
+            is_official_infrastructure_failure("test_suite", "gold_error")
+        )
 
     def test_official_worker_forces_single_thread_numerical_libraries(self) -> None:
         variable_names = (

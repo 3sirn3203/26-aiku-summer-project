@@ -385,11 +385,12 @@ fingerprint를 확인합니다. 실행 시 inference 관련 파일 전체의 SHA
 공식 evaluator 지표와 구분합니다.
 
 예측 SQL의 문법·실행 오류나 안전성 탈락은 해당 예제의 0점으로 분모에
-포함합니다. 반면 evaluator timeout, gold 오류 또는 evaluator 자체 오류가 한
-건이라도 있으면 모델 오답으로 합산하지 않고 영향받은 metric의 `valid=false`,
-accuracy=`null`로 기록하며 pipeline을 실패시킵니다. Exact Match가 완료되고
-Test Suite만 실패한 경우처럼 두 공식 metric의 유효성은 서로 독립적으로
-보존합니다.
+포함합니다. Test Suite evaluator timeout도 해당 예측의 실행 실패로 간주하여
+그 예제만 0점으로 처리하고 전체 Test Suite Accuracy는 계속 계산합니다. 반면
+gold 오류, evaluator 자체 오류 또는 SQL을 실행하지 않는 Exact Match의 evaluator
+timeout이 한 건이라도 있으면 모델 오답으로 합산하지 않고 영향받은 metric의
+`valid=false`, accuracy=`null`로 기록하며 pipeline을 실패시킵니다. 두 공식
+metric의 유효성은 서로 독립적으로 보존합니다.
 
 ## RL adapter 평가 연동
 
@@ -535,6 +536,9 @@ single-turn 코드가 바뀌면 기존처럼 resume를 거부합니다.
 Planner–Coder–Verifier workflow가 추가된 package version은 `0.5.0`입니다.
 Agentic run은 `config.py`, `core/`, `multi_turn_agent/`를 별도 source contract로
 사용하므로 `0.4.1` single-turn artifact와 섞거나 상호 resume하지 않습니다.
+
+Test Suite evaluator timeout을 해당 example의 오답으로 집계하는 metric contract는
+package version `0.5.1`부터 적용됩니다.
 
 ## Multi-turn Planner–Coder–Verifier 평가
 

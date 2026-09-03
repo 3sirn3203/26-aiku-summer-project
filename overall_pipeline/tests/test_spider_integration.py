@@ -354,11 +354,11 @@ class SpiderIntegrationTests(unittest.TestCase):
                 {"min": 2.0, "max": 16.0, "mean": 9.0, "median": 9.0},
             )
 
-    def test_official_infrastructure_failure_invalidates_only_affected_metric(self) -> None:
+    def test_official_test_suite_timeout_is_a_scored_failure(self) -> None:
         def timed_out_test_suite(items, **_kwargs):
             return {
                 "schema_version": 1,
-                "ok": False,
+                "ok": True,
                 "total_examples": len(items),
                 "processed_examples": len(items),
                 "metrics": {
@@ -368,9 +368,9 @@ class SpiderIntegrationTests(unittest.TestCase):
                         "infrastructure_failures": 0,
                     },
                     "test_suite": {
-                        "valid": False,
-                        "classified_examples": 0,
-                        "infrastructure_failures": len(items),
+                        "valid": True,
+                        "classified_examples": len(items),
+                        "infrastructure_failures": 0,
                     },
                 },
                 "policy": {},
@@ -409,9 +409,9 @@ class SpiderIntegrationTests(unittest.TestCase):
         self.assertFalse(summary["pipeline_pass"])
         self.assertTrue(summary["exact_set_match_valid"])
         self.assertEqual(summary["exact_set_match_accuracy"], 1.0)
-        self.assertFalse(summary["test_suite_accuracy_valid"])
-        self.assertIsNone(summary["test_suite_matches"])
-        self.assertIsNone(summary["test_suite_accuracy"])
+        self.assertTrue(summary["test_suite_accuracy_valid"])
+        self.assertEqual(summary["test_suite_matches"], 0)
+        self.assertEqual(summary["test_suite_accuracy"], 0.0)
 
 
 if __name__ == "__main__":

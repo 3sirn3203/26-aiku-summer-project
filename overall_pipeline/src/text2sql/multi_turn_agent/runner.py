@@ -28,6 +28,7 @@ from text2sql.core.official_eval import (
     OfficialEvaluationError,
     OfficialEvaluationItem,
     evaluate_official,
+    is_official_infrastructure_failure,
     validate_official_environment,
 )
 from text2sql.core.progress import ProgressReporter
@@ -63,11 +64,6 @@ from text2sql.multi_turn_agent.workflow import (
 )
 
 
-_INFRASTRUCTURE_OFFICIAL_STATUSES = {
-    "evaluator_error",
-    "evaluator_timeout",
-    "gold_error",
-}
 _TASK_ITERATION = re.compile(r":iteration-([1-3])$")
 
 
@@ -539,7 +535,7 @@ def _official_metric_summary(
     results = [record["official_evaluation"][metric] for record in records]
     statuses = Counter(result["status"] for result in results)
     infrastructure_failures = sum(
-        result["status"] in _INFRASTRUCTURE_OFFICIAL_STATUSES
+        is_official_infrastructure_failure(metric, result["status"])
         for result in results
     )
     valid = infrastructure_failures == 0 and len(results) == len(records)
@@ -1409,8 +1405,12 @@ def run_agent_evaluation(
                     exact_status = current.get("exact_set_match", {}).get("status")
                     suite_status = current.get("test_suite", {}).get("status")
                     if (
-                        exact_status in _INFRASTRUCTURE_OFFICIAL_STATUSES
-                        or suite_status in _INFRASTRUCTURE_OFFICIAL_STATUSES
+                        is_official_infrastructure_failure(
+                            "exact_set_match", exact_status
+                        )
+                        or is_official_infrastructure_failure(
+                            "test_suite", suite_status
+                        )
                     ):
                         record.pop("official_evaluation", None)
             pending_positions = [

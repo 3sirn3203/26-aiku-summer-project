@@ -51,6 +51,30 @@ class OfficialEvaluationError(RuntimeError):
     """Raised when the pinned Spider evaluator cannot produce valid metrics."""
 
 
+_INFRASTRUCTURE_FAILURE_STATUSES = {
+    "evaluator_error",
+    "gold_error",
+}
+
+
+def is_official_infrastructure_failure(metric: str, status: Any) -> bool:
+    """Return whether a per-example status invalidates the whole metric.
+
+    A Test Suite worker timeout is a scored failure for that example.  Other
+    evaluator failures remain unclassified because they do not provide a
+    trustworthy model-level verdict.  Exact-match timeouts also remain
+    infrastructure failures because exact matching does not execute the
+    predicted query and therefore has no query-timeout semantics.
+    """
+
+    if metric == "test_suite" and status == "evaluator_timeout":
+        return False
+    return (
+        status == "evaluator_timeout"
+        or status in _INFRASTRUCTURE_FAILURE_STATUSES
+    )
+
+
 @dataclass(frozen=True)
 class OfficialEvaluationItem:
     example_id: str
@@ -591,16 +615,12 @@ def evaluate_official(
         raise OfficialEvaluationError(
             "Official evaluator changed the requested example count or order"
         )
-    infrastructure_statuses = {
-        "evaluator_error",
-        "evaluator_timeout",
-        "gold_error",
-    }
     metric_validity: Dict[str, Dict[str, Any]] = {}
     for metric in ("exact_set_match", "test_suite"):
         statuses = [result[metric]["status"] for result in results]
         infrastructure_failures = sum(
-            status in infrastructure_statuses for status in statuses
+            is_official_infrastructure_failure(metric, status)
+            for status in statuses
         )
         metric_validity[metric] = {
             "valid": infrastructure_failures == 0 and len(statuses) == len(items),
@@ -633,6 +653,9 @@ def evaluate_official(
                 "case-sensitive global str.replace('value', '1')"
             ),
             "official_evaluator_runtime_included_in_sql_execution_time": False,
+            "test_suite_evaluator_timeout": (
+                "counted as an incorrect prediction for that example"
+            ),
         },
         "evaluator": {
             "root": str(evaluator_root),
