@@ -269,6 +269,9 @@ class AgentRunnerTests(unittest.TestCase):
             manifest = json.loads(
                 (run_dir / "run_manifest.json").read_text(encoding="utf-8")
             )
+            persisted_summary = json.loads(
+                (run_dir / "summary.json").read_text(encoding="utf-8")
+            )
             summary = result["summary"]
 
             self.assertEqual([item["index"] for item in trajectories], selected_indices)
@@ -283,6 +286,20 @@ class AgentRunnerTests(unittest.TestCase):
             self.assertEqual(summary["iterations_used_distribution"], {"1": 3})
             self.assertTrue(summary["selected_databases_unchanged"])
             self.assertIn("page cache", summary["primary_timing_cache_caveat"])
+            self.assertEqual(
+                persisted_summary,
+                {
+                    "test_suite_accuracy": 0.0,
+                    "exact_set_match_accuracy": 0.0,
+                    "result_match_accuracy": 1.0,
+                    "mean_vm_steps": 5_000.0,
+                    "mean_latency_ms": 0.001,
+                },
+            )
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertNotIn("source_config", manifest)
+            self.assertNotIn("experiment_config", manifest)
+            self.assertNotIn("local_checkpoints", manifest)
 
             # Each episode has one tool execution while workers are live.  The
             # fresh prediction and gold executions happen only after close().

@@ -9,12 +9,12 @@ from typing import Any, Dict, Mapping, Optional, Sequence
 from text2sql.config import (
     ConfigError,
     ExecutionConfig,
+    FIXED_SMOKE_CONFIG,
     GenerationConfig,
     ModelConfig,
     OfficialEvaluationConfig,
     OutputConfig,
     SmokeConfig,
-    SmokeSampleConfig,
     SpiderConfig,
     _boolean,
     _integer,
@@ -246,7 +246,6 @@ def load_agent_config(path: Path) -> AgentAppConfig:
         raw,
         (
             "spider",
-            "smoke",
             "roles",
             "workflow",
             "gpu_pools",
@@ -259,7 +258,6 @@ def load_agent_config(path: Path) -> AgentAppConfig:
 
     base = source_path.parent
     spider_raw = _mapping(raw, "spider")
-    smoke_raw = _mapping(raw, "smoke")
     roles_raw = _mapping(raw, "roles")
     workflow_raw = _mapping(raw, "workflow")
     gpu_raw = _mapping(raw, "gpu_pools")
@@ -271,7 +269,6 @@ def load_agent_config(path: Path) -> AgentAppConfig:
         ("root", "examples_file", "tables_file", "database_dir", "split"),
         "spider",
     )
-    _require_exact_keys(smoke_raw, ("samples", "minimum_executable"), "smoke")
     _require_exact_keys(roles_raw, ("planner", "coder", "verifier"), "roles")
     _require_exact_keys(
         workflow_raw,
@@ -312,38 +309,6 @@ def load_agent_config(path: Path) -> AgentAppConfig:
         "official_evaluation",
     )
     _require_exact_keys(output_raw, ("directory",), "output")
-
-    samples_raw = smoke_raw.get("samples")
-    if not isinstance(samples_raw, list) or not samples_raw:
-        raise ConfigError("smoke.samples must be a non-empty list")
-    samples = []
-    for position, sample_raw in enumerate(samples_raw):
-        if not isinstance(sample_raw, dict):
-            raise ConfigError("smoke.samples[%d] must be an object" % position)
-        _require_exact_keys(
-            sample_raw,
-            (
-                "index",
-                "db_id",
-                "category",
-                "question_sha256",
-                "gold_sql_sha256",
-            ),
-            "smoke.samples[%d]" % position,
-        )
-        sample = SmokeSampleConfig(
-            index=_integer(sample_raw, "index", minimum=0),
-            db_id=_string(sample_raw, "db_id"),
-            category=_string(sample_raw, "category"),
-            question_sha256=_string(sample_raw, "question_sha256"),
-            gold_sql_sha256=_string(sample_raw, "gold_sql_sha256"),
-        )
-        for digest in (sample.question_sha256, sample.gold_sql_sha256):
-            if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-                raise ConfigError("smoke sample hashes must be lowercase SHA-256")
-        samples.append(sample)
-    if len({sample.index for sample in samples}) != len(samples):
-        raise ConfigError("smoke.samples must not contain duplicate indices")
 
     spider_root = _resolve_path(base, _string(spider_raw, "root"))
     evaluator_root = _resolve_path(base, _string(official_raw, "evaluator_root"))
@@ -386,10 +351,7 @@ def load_agent_config(path: Path) -> AgentAppConfig:
             database_dir=_string(spider_raw, "database_dir"),
             split=_string(spider_raw, "split"),
         ),
-        smoke=SmokeConfig(
-            samples=tuple(samples),
-            minimum_executable=_integer(smoke_raw, "minimum_executable", minimum=1),
-        ),
+        smoke=FIXED_SMOKE_CONFIG,
         roles=roles,
         workflow=AgentWorkflowConfig(
             max_iterations=_integer(workflow_raw, "max_iterations", minimum=1),
@@ -444,8 +406,6 @@ def load_agent_config(path: Path) -> AgentAppConfig:
         raise ConfigError("workflow.infrastructure_retry_limit must be exactly 1")
     if config.workflow.execution_concurrency != 2:
         raise ConfigError("workflow.execution_concurrency must be exactly 2")
-    if config.smoke.minimum_executable > len(config.smoke.samples):
-        raise ConfigError("smoke.minimum_executable cannot exceed sample count")
     if re.fullmatch(r"[0-9a-f]{40}", config.official_evaluation.upstream_commit) is None:
         raise ConfigError("official evaluator commit must be pinned")
     if not config.official_evaluation.enabled:

@@ -35,8 +35,10 @@ executor·공식 평가·분산 orchestration을 deterministic mock으로 검증
 ```text
 code/
 ├── configs/
-│   ├── smoke.json
-│   ├── evaluate_dev.json       # single-turn full dev
+│   ├── single_turn_zero_shot.json
+│   ├── single_turn_sft_instruct.json
+│   ├── single_turn_sft.json
+│   ├── single_turn_sft_augmented.json
 │   └── agent_evaluate_dev.json # Planner–Coder–Verifier smoke/full dev
 ├── src/text2sql/
 │   ├── core/                   # 데이터·모델·SQL 실행·공식 평가 공통 인프라
@@ -138,17 +140,17 @@ python3 -m venv .venv
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
-.venv/bin/python -m text2sql validate-data --config configs/smoke.json
+.venv/bin/python -m text2sql validate-data --config configs/single_turn_zero_shot.json
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
-.venv/bin/python -m text2sql validate-official --config configs/smoke.json
+.venv/bin/python -m text2sql validate-official --config configs/single_turn_zero_shot.json
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 .venv/bin/python -m unittest discover -s tests -v
 
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 .venv/bin/python -m text2sql smoke \
-  --config configs/smoke.json \
+  --config configs/single_turn_zero_shot.json \
   --backend mock
 ```
 
@@ -261,7 +263,7 @@ nvidia-smi --query-gpu=name,memory.total,driver_version \
   --format=csv,noheader
 
 CUDA_VISIBLE_DEVICES=0 \
-python -m text2sql doctor --config configs/smoke.json
+python -m text2sql doctor --config configs/single_turn_zero_shot.json
 ```
 
 Doctor는 모델을 로드하지 않습니다. 최소한 다음이 확인되어야 합니다.
@@ -284,8 +286,8 @@ model_loaded: false
 그다음 데이터 경로를 검증합니다.
 
 ```bash
-python -m text2sql validate-data --config configs/smoke.json
-python -m text2sql validate-official --config configs/smoke.json
+python -m text2sql validate-data --config configs/single_turn_zero_shot.json
+python -m text2sql validate-official --config configs/single_turn_zero_shot.json
 ```
 
 ## 서버 Qwen smoke test
@@ -295,7 +297,7 @@ python -m text2sql validate-official --config configs/smoke.json
 ```bash
 CUDA_VISIBLE_DEVICES=0 \
 python -m text2sql smoke \
-  --config configs/smoke.json \
+  --config configs/single_turn_zero_shot.json \
   --backend hf \
   --device cuda:0 \
   --allow-model-download
@@ -311,7 +313,7 @@ supervisor도 함께 두는 것을 권장합니다. 아래 60분 한도는 8개 
 CUDA_VISIBLE_DEVICES=0 \
 timeout --signal=TERM --kill-after=30s 60m \
 python -m text2sql smoke \
-  --config configs/smoke.json \
+  --config configs/single_turn_zero_shot.json \
   --backend hf \
   --device cuda:0 \
   --allow-model-download
@@ -322,16 +324,16 @@ python -m text2sql smoke \
 ```bash
 CUDA_VISIBLE_DEVICES=0 \
 python -m text2sql smoke \
-  --config configs/smoke.json \
+  --config configs/single_turn_zero_shot.json \
   --backend hf \
   --device cuda:0
 ```
 
-첫 성공 run의 `run_manifest.json`에는 Hugging Face가 resolve한 model commit hash가 기록됩니다. 이후에는 `configs/smoke.json`의 `model.revision`을 해당 hash로 바꾸어 재현성을 고정해야 합니다.
+첫 성공 run의 `run_manifest.json`에는 Hugging Face가 resolve한 model commit hash가 기록됩니다. 이후에는 `configs/single_turn_zero_shot.json`의 `model.revision`을 해당 hash로 바꾸어 재현성을 고정해야 합니다.
 Resolved commit hash를 확인할 수 없는 경우에는 pinning 계약을 만족하지 못한 것으로
 간주하여 backend 초기화가 실패합니다.
 
-현재 `configs/smoke.json`과 `configs/evaluate_dev.json`은
+현재 `configs/single_turn_zero_shot.json`은
 `Qwen/Qwen2.5-Coder-0.5B-Instruct`의
 `ea3f2471cf1b1f0db85067f1ef93848e38e88c25` commit으로 고정되어 있습니다.
 
@@ -396,7 +398,7 @@ Test Suite만 실패한 경우처럼 두 공식 metric의 유효성은 서로 �
 
 ```bash
 python -m text2sql evaluate \
-  --config configs/evaluate_dev.json \
+  --config configs/single_turn_zero_shot.json \
   --backend peft \
   --adapter-dir ../rl_finetune/outputs/<run>/adapter \
   --gpus 0,1,2,3,4,5,6,7 \
@@ -419,9 +421,9 @@ resume하지 않습니다. Two-turn RL 평가는 `rl_finetune`의 별도 entrypo
 전체 dev에서 사용하는 20개 DB의 generated suite를 먼저 모두 확인합니다.
 
 ```bash
-python -m text2sql validate-data --config configs/evaluate_dev.json
+python -m text2sql validate-data --config configs/single_turn_zero_shot.json
 python -m text2sql validate-official \
-  --config configs/evaluate_dev.json \
+  --config configs/single_turn_zero_shot.json \
   --all-examples
 ```
 
@@ -440,7 +442,7 @@ generation 자체는 모든 준비된 worker에서 병렬로 진행됩니다.
 ```bash
 for gpu in 1 2 3 4 5 6 7; do
   CUDA_VISIBLE_DEVICES="$gpu" \
-  python -m text2sql doctor --config configs/evaluate_dev.json || exit 1
+  python -m text2sql doctor --config configs/single_turn_zero_shot.json || exit 1
 done
 ```
 
@@ -453,7 +455,7 @@ download flag를 붙이지 않습니다. 외부 `CUDA_VISIBLE_DEVICES`도 붙이
 ```bash
 timeout --signal=TERM --kill-after=30s 60m \
 python -m text2sql evaluate \
-  --config configs/evaluate_dev.json \
+  --config configs/single_turn_zero_shot.json \
   --backend hf \
   --selection smoke \
   --gpus 1,2 \
@@ -486,7 +488,7 @@ Official Spider evaluation: 64/1034
 ```bash
 timeout --signal=TERM --kill-after=30s 4h \
 python -m text2sql evaluate \
-  --config configs/evaluate_dev.json \
+  --config configs/single_turn_zero_shot.json \
   --backend hf \
   --selection all \
   --gpus 1,2,3,4,5,6,7 \
@@ -509,7 +511,7 @@ worker 오류로 중단되면 같은 source/config/model 계약으로 다음처�
 ```bash
 timeout --signal=TERM --kill-after=30s 4h \
 python -m text2sql evaluate \
-  --config configs/evaluate_dev.json \
+  --config configs/single_turn_zero_shot.json \
   --backend hf \
   --selection all \
   --gpus 1,2,3,4,5,6,7 \
@@ -538,7 +540,7 @@ Agentic run은 `config.py`, `core/`, `multi_turn_agent/`를 별도 source contra
 
 Agentic workflow는 single-turn baseline을 확장하거나 대체하지 않습니다.
 `multi_turn_agent/`, `configs/agent_evaluate_dev.json`,
-`outputs/agent_evaluation/`을 사용하는 별도 실험입니다. 두 방식은 공통 Spider
+`outputs/multi_turn/`을 사용하는 별도 실험입니다. 두 방식은 공통 Spider
 loader, read-only SQL executor와 공식 evaluator만 공유합니다. Agentic run의
 source contract은 `config.py`, `core/`, `multi_turn_agent/`만 포함하므로
 `single_turn/`만 수정해도 기존 agentic run의 source hash는 바뀌지 않습니다.
@@ -729,16 +731,16 @@ index 순서로 병합됩니다.
 
 ### Agentic artifact와 실행시간
 
-Agentic run은 `outputs/agent_evaluation/<run_id>/`에 다음을 저장합니다.
+Agentic run은 `outputs/multi_turn/<run_id>/`에 다음을 저장합니다.
 
 - `trajectories.jsonl`: iteration별 raw/parsed role output, candidate SQL, bounded
   실행 관측, Verifier 결정과 role prompt hash
 - `records.jsonl`: final SQL, 공식 Exact/Test Suite 판정, 원본 DB 로컬 진단 실행과
   최종 SQL 실행시간
-- `run_manifest.json`: 역할별 model/revision/trainable metadata, GPU pool, worker
-  상태, source·dataset·prompt·schema contract와 실행 조건
-- `summary.json`: iteration 분포, stop/max/error 종료 이유, 공식 정확도, 실행
-  status와 timing 집계
+- `run_manifest.json`: 실효 config, contract hash, model revision, GPU/worker 상태,
+  source·dataset hash와 실행 상태. 원본 config나 상세 worker metadata처럼 다른
+  artifact와 중복되는 내용은 저장하지 않습니다.
+- `summary.json`: 아래에 정의한 다섯 개 최종 metric만 저장
 - run 내부 episode checkpoint: stage-level resume를 위한 원자적 중간 상태
 
 전체 prompt message 본문과 per-record worker/GPU 정보는 저장하지 않습니다. GPU
@@ -748,20 +750,22 @@ Agentic run은 `outputs/agent_evaluation/<run_id>/`에 다음을 저장합니다
 final SQL을 새로 실행한 `predicted_execution.query_elapsed_ns`를 모두 보존합니다.
 Single-turn과 비교하거나 향후 RL 입력 후보로 사용할 primary timing은 후자입니다.
 다만 agent loop가 같은 원본 DB에서 후보 SQL을 먼저 실행하므로 OS/SQLite cache가
-final 재실행 전에 warm-up될 수 있습니다. 이 cache 정책은 manifest에 기록되며,
+final 재실행 전에 warm-up될 수 있습니다. 이 cache 정책을 적용하므로,
 이 값은 엄격한 cold-cache latency로 해석하지 않습니다. 현재 범위에는 이 원시
 SQL 실행시간을 reward로 결합하는 공식이나 가중치가 포함되지 않습니다.
 
 ## Single-turn Artifact
 
-Smoke run은 `outputs/smoke/<run_id>/`, 전체 평가는
-`outputs/evaluation/<run_id>/`에 저장됩니다.
+Single-turn smoke run과 전체 평가는 모두 `outputs/single_turn/<run_id>/`에
+저장됩니다. Multi-turn agent 평가는 `outputs/multi_turn/<run_id>/`에 저장됩니다.
 
-- `run_manifest.json`: 실효 설정, 소스 tree/data hash, runtime, Hub revision 또는
-  local checkpoint fingerprint, 계약
+- `run_manifest.json`: 실효 설정, 소스 tree/data hash, runtime, model revision과
+  실행 상태. 중복되는 원본 config, per-file source hash와 상세 preflight 내용은
+  제외합니다.
 - `records.jsonl`: 문제 식별 정보, LLM raw output, 추출 SQL, 두 공식 정확도
   판정, 로컬 진단 결과, SQL 실행 결과와 timing
-- `summary.json`: pipeline 통과 여부, 정확도 및 prediction/gold query timing 집계
+- `summary.json`: `test_suite_accuracy`, `exact_set_match_accuracy`,
+  `result_match_accuracy`, `mean_vm_steps`, `mean_latency_ms`만 저장
 
 전체 평가에는 다음 중간 artifact도 있습니다.
 
@@ -777,9 +781,10 @@ Smoke run은 `outputs/smoke/<run_id>/`, 전체 평가는
 
 Model backend 오류를 빈 결과로 대체하거나 실패한 SQL을 자동 수정하지 않습니다.
 초기 model/tokenizer load가 실패해도 빈 디렉터리만 남기지 않고 failed manifest,
-빈 `records.jsonl`, 실패 `summary.json`을 기록합니다. Manifest의 `config`는 CLI
-override까지 반영한 실효 설정이며, 원본 설정은 `source_config`로 따로 보존합니다.
-재실행에 필요한 비민감 CLI 인자는 정규화된 `invocation` 항목에 기록합니다.
+빈 `records.jsonl`, 모든 metric이 `null`인 실패 `summary.json`을 기록합니다.
+Manifest의 `config`는 CLI override까지 반영한 유일한 실효 설정 snapshot이며,
+원본 설정은 본문 대신 경로와 SHA-256만 보존합니다. 재실행에 필요한 비민감 CLI
+인자는 정규화된 `invocation` 항목에 기록합니다.
 
 실행시간 필드는 다음 경계를 구분합니다.
 
@@ -796,16 +801,16 @@ override까지 반영한 실효 설정이며, 원본 설정은 `source_config`�
 - `vm_step_progress_interval`: 현재 `1000`
 - `vm_step_measurement_complete`: SQL이 정상 완료되어 상한도 유효한지 여부
 
-따라서 이 값은 exact `SQLITE_STMTSTATUS_VM_STEP`이 아니며 summary도 하한값을
-집계합니다. Timeout과 engine-level result-limit은 중단 시점까지의 하한만
+따라서 이 값은 exact `SQLITE_STMTSTATUS_VM_STEP`이 아니며 `mean_vm_steps`도 정상
+완료된 prediction들의 하한값 평균입니다. Timeout과 engine-level result-limit은 중단 시점까지의 하한만
 남깁니다. Agent
 trajectory에는 측정값을 보존하지만 기존 실험의 입력 조건을 바꾸지 않도록
 Planner와 Verifier prompt에는 전달하지 않습니다.
 
 각 질문에서는 prediction을 먼저 실행한 뒤 gold를 실행합니다. 별도의 cache
 reset이나 warm-up은 수행하지 않으며, gold 실행이 prediction 시간을 미리
-warm-up하지 않게 순서를 고정합니다. 성공한 실행의 `query_elapsed_ns`만 timing
-summary에 포함하고 제외 건수도 함께 기록합니다. Timeout처럼 worker가
+warm-up하지 않게 순서를 고정합니다. 성공한 prediction의 `query_elapsed_ns`만
+`mean_latency_ms`에 포함합니다. Timeout처럼 worker가
 결과를 돌려준 경우에는 해당 질문 record에 관찰된 query 시간과 parent 시간을
 남기되 성공 latency 통계에는 포함하지 않습니다.
 
@@ -815,7 +820,7 @@ runtime은 이 값에 섞지 않습니다. 이 단계에서는 reward 결합식�
 정의하지 않습니다.
 
 `run_manifest.json`은 Python·OS·CPU architecture·CPU count·SQLite 버전을
-기록하고, Hugging Face backend metadata는 PyTorch·CUDA·GPU 정보를 별도로
-기록합니다. 실행시간을 서로 비교할 때에는 같은 서버와 가능한 한 유사한
+기록합니다. 상세 backend/worker metadata는 single-turn의 `shards/` 또는
+multi-turn의 `worker_runtime/`에 남깁니다. 실행시간을 서로 비교할 때에는 같은 서버와 가능한 한 유사한
 시스템 부하 조건을 사용하고, 서버 준비 단계의 `nvidia-smi` 출력도 run과 함께
 보존합니다.

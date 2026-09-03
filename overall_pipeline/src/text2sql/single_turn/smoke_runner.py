@@ -30,6 +30,11 @@ from text2sql.core.official_eval import (
     evaluate_official,
     validate_official_environment,
 )
+from text2sql.core.reporting import (
+    compact_run_manifest,
+    empty_metric_summary,
+    metric_summary,
+)
 from text2sql.single_turn.prompt import build_messages
 from text2sql.core.schema import serialize_schema
 from text2sql.core.spider import SpiderDataError, SpiderDataset
@@ -447,7 +452,7 @@ def run_smoke(
     effective_config = _effective_config_payload(config)
     config_hash = _sha256_bytes(_json_bytes(effective_config))
     manifest: Dict[str, Any] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "run_id": run_id,
         "status": "initializing_backend",
         "started_at": started_wall.isoformat(),
@@ -532,7 +537,7 @@ def run_smoke(
             "validation": validation.to_dict(),
         },
     }
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
 
     records: List[Dict[str, Any]] = []
     records_path = run_dir / "records.jsonl"
@@ -571,7 +576,7 @@ def run_smoke(
             "finished_at": finished_wall.isoformat(),
             "elapsed_seconds": time.monotonic() - started_monotonic,
         }
-        _atomic_json(run_dir / "summary.json", summary)
+        _atomic_json(run_dir / "summary.json", empty_metric_summary())
         manifest.update(
             {
                 "status": "failed",
@@ -586,7 +591,7 @@ def run_smoke(
         )
         manifest["dataset"]["selected_database_sha256_after"] = database_hashes_after
         manifest["dataset"]["selected_databases_unchanged"] = databases_unchanged
-        _atomic_json(run_dir / "run_manifest.json", manifest)
+        _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
         raise RuntimeError(
             "Backend initialization failed; diagnostics written to %s: %s"
             % (run_dir, exc)
@@ -594,7 +599,7 @@ def run_smoke(
 
     manifest["status"] = "running"
     manifest["backend"] = backend_metadata
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
 
     processing_error: Optional[Exception] = None
     processing_error_stage = "pipeline_execution"
@@ -769,7 +774,7 @@ def run_smoke(
             "finished_at": finished_wall.isoformat(),
             "elapsed_seconds": time.monotonic() - started_monotonic,
         }
-        _atomic_json(run_dir / "summary.json", summary)
+        _atomic_json(run_dir / "summary.json", empty_metric_summary())
         manifest.update(
             {
                 "status": "failed",
@@ -784,7 +789,7 @@ def run_smoke(
         )
         manifest["dataset"]["selected_database_sha256_after"] = database_hashes_after
         manifest["dataset"]["selected_databases_unchanged"] = databases_unchanged
-        _atomic_json(run_dir / "run_manifest.json", manifest)
+        _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
         raise RuntimeError(
             "Smoke pipeline failed; diagnostics written to %s: %s"
             % (run_dir, processing_error)
@@ -883,6 +888,10 @@ def run_smoke(
         and databases_unchanged
     )
     finished_wall = datetime.now(timezone.utc)
+    prediction_query_timing = _query_timing_summary(
+        records, "predicted_execution"
+    )
+    prediction_vm_steps = _vm_step_summary(records, "predicted_execution")
     summary: Dict[str, Any] = {
         "schema_version": 3,
         "run_id": run_id,
@@ -930,13 +939,9 @@ def run_smoke(
         "local_result_match_policy": (
             "single original Spider DB; diagnostic only; not an official metric"
         ),
-        "prediction_query_timing": _query_timing_summary(
-            records, "predicted_execution"
-        ),
+        "prediction_query_timing": prediction_query_timing,
         "gold_query_timing": _query_timing_summary(records, "gold_execution"),
-        "prediction_vm_steps": _vm_step_summary(
-            records, "predicted_execution"
-        ),
+        "prediction_vm_steps": prediction_vm_steps,
         "gold_vm_steps": _vm_step_summary(records, "gold_execution"),
         "selected_databases_unchanged": databases_unchanged,
         "elapsed_seconds": time.monotonic() - started_monotonic,
@@ -947,7 +952,16 @@ def run_smoke(
         summary["notice"] = (
             "Gold-backed mock results validate the pipeline only and are not model accuracy."
         )
-    _atomic_json(run_dir / "summary.json", summary)
+    _atomic_json(
+        run_dir / "summary.json",
+        metric_summary(
+            test_suite_accuracy=summary["test_suite_accuracy"],
+            exact_set_match_accuracy=summary["exact_set_match_accuracy"],
+            result_match_accuracy=summary["local_result_match_rate"],
+            prediction_vm_steps=prediction_vm_steps,
+            prediction_query_timing=prediction_query_timing,
+        ),
+    )
 
     manifest["status"] = "completed" if pipeline_pass else "failed"
     manifest["finished_at"] = finished_wall.isoformat()
@@ -959,5 +973,5 @@ def run_smoke(
         "records": "records.jsonl",
         "summary": "summary.json",
     }
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     return {"run_directory": str(run_dir), "summary": summary}

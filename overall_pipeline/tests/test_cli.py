@@ -18,7 +18,7 @@ CODE_ROOT = Path(__file__).resolve().parents[1]
 class CliTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.config_path = CODE_ROOT / "configs" / "smoke.json"
+        cls.config_path = CODE_ROOT / "configs" / "single_turn_zero_shot.json"
         config = load_config(cls.config_path)
         if not config.spider.root.is_dir():
             raise unittest.SkipTest("Spider data is not installed")
@@ -55,7 +55,12 @@ class CliTests(unittest.TestCase):
                 manifest["config"]["output"]["directory"],
                 str(Path(directory).resolve()),
             )
-            self.assertEqual(manifest["source_config"]["model"]["device"], "cuda:0")
+            self.assertNotIn("source_config", manifest)
+            self.assertEqual(
+                manifest["config_source_path"],
+                str(self.config_path),
+            )
+            self.assertEqual(len(manifest["source_config_sha256"]), 64)
             self.assertEqual(
                 manifest["invocation"],
                 {

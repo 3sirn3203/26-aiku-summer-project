@@ -24,6 +24,7 @@ class AgentConfigTests(unittest.TestCase):
 
     def test_agent_contract_is_pinned_and_role_separated(self) -> None:
         config = load_agent_config(CONFIG_PATH)
+        self.assertNotIn("smoke", config.raw)
         self.assertEqual(config.workflow.max_iterations, 3)
         self.assertEqual(config.workflow.observation_max_rows, 5)
         self.assertEqual(config.workflow.observation_max_bytes, 4096)

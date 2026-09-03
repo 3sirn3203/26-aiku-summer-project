@@ -39,7 +39,7 @@ def _real_official_assets_available() -> bool:
                 return False
     except importlib.metadata.PackageNotFoundError:
         return False
-    config = load_config(CODE_ROOT / "configs" / "smoke.json")
+    config = load_config(CODE_ROOT / "configs" / "single_turn_zero_shot.json")
     return (
         config.official_evaluation.evaluator_root.is_dir()
         and config.official_evaluation.test_suite_database_root.is_dir()
@@ -51,7 +51,9 @@ def _real_official_assets_available() -> bool:
 class OfficialEvaluationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.config = load_config(CODE_ROOT / "configs" / "smoke.json")
+        cls.config = load_config(
+            CODE_ROOT / "configs" / "single_turn_zero_shot.json"
+        )
         cls.dataset = SpiderDataset(cls.config.spider)
 
     def _preflight(self, db_ids):

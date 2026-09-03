@@ -31,6 +31,11 @@ from text2sql.core.official_eval import (
     validate_official_environment,
 )
 from text2sql.core.progress import ProgressReporter
+from text2sql.core.reporting import (
+    compact_run_manifest,
+    empty_metric_summary,
+    metric_summary,
+)
 from text2sql.core.schema import serialize_schema
 from text2sql.core.spider import SpiderDataError, SpiderDataset
 from text2sql.multi_turn_agent.artifacts import (
@@ -673,7 +678,7 @@ def _write_failure(
         "finished_at": finished.isoformat(),
         "elapsed_seconds": time.monotonic() - started_monotonic,
     }
-    atomic_json(run_dir / "summary.json", summary)
+    atomic_json(run_dir / "summary.json", empty_metric_summary())
     manifest.update(
         {
             "status": "failed",
@@ -689,7 +694,7 @@ def _write_failure(
             },
         }
     )
-    atomic_json(run_dir / "run_manifest.json", manifest)
+    atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
 
 
 def _validate_resume_manifest(
@@ -1076,7 +1081,7 @@ def run_agent_evaluation(
             db_id: sha256_file(path) for db_id, path in db_paths.items()
         }
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": run_id,
             "run_type": (
                 "agent_smoke" if selection == "smoke" else "agent_evaluation"
@@ -1145,7 +1150,7 @@ def run_agent_evaluation(
             },
         }
     manifest["status"] = "agent_inference"
-    atomic_json(run_dir / "run_manifest.json", manifest)
+    atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
 
     loaded_checkpoints: Dict[int, Mapping[str, Any]] = {}
     completed_results: Dict[int, EpisodeResult] = {}
@@ -1192,7 +1197,7 @@ def run_agent_evaluation(
             )
             signal_handlers = _install_worker_cleanup_handlers(coordinator)
             manifest["status"] = "loading_role_workers"
-            atomic_json(run_dir / "run_manifest.json", manifest)
+            atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
             coordinator.start()
             startup_metadata = coordinator.metadata()
             startup_resolved = _validate_resolved_revisions(
@@ -1204,7 +1209,7 @@ def run_agent_evaluation(
                 manifest["roles"][role]["resolved_revisions"] = list(
                     startup_resolved.get(role, ())
                 )
-            atomic_json(run_dir / "run_manifest.json", manifest)
+            atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
             episode_results = _run_episode_tasks(
                 config=config,
                 run_id=run_id,
@@ -1232,7 +1237,7 @@ def run_agent_evaluation(
                 manifest["roles"][role]["resolved_revisions"] = list(
                     resolved.get(role, ())
                 )
-            atomic_json(run_dir / "run_manifest.json", manifest)
+            atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
         if len(episode_results) != total:
             raise RuntimeError("not every selected example has a terminal trajectory")
     except BaseException as exc:
@@ -1273,7 +1278,7 @@ def run_agent_evaluation(
     # No model process remains alive below this line.  Prediction and gold are
     # executed serially in the parent-defined order for comparable primary timing.
     manifest["status"] = "final_sql_execution"
-    atomic_json(run_dir / "run_manifest.json", manifest)
+    atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     records_path = run_dir / "records.jsonl"
     records = _read_jsonl(records_path)
     if len(records) > total:
@@ -1393,7 +1398,7 @@ def run_agent_evaluation(
         ) from exc
 
     manifest["status"] = "official_evaluation"
-    atomic_json(run_dir / "run_manifest.json", manifest)
+    atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     try:
         if config.official_evaluation.enabled:
             if resume_run is not None:
@@ -1589,6 +1594,10 @@ def run_agent_evaluation(
         and official_ok is not False
     )
     finished_wall = datetime.now(timezone.utc)
+    prediction_query_timing = query_timing_summary(
+        records, "predicted_execution"
+    )
+    prediction_vm_steps = vm_step_summary(records, "predicted_execution")
     summary = {
         "schema_version": 1,
         "run_id": run_id,
@@ -1639,13 +1648,9 @@ def run_agent_evaluation(
         ),
         "tool_query_timing": _tool_timing_summary(trajectories),
         "tool_vm_steps": _tool_vm_step_summary(trajectories),
-        "prediction_query_timing": query_timing_summary(
-            records, "predicted_execution"
-        ),
+        "prediction_query_timing": prediction_query_timing,
         "gold_query_timing": query_timing_summary(records, "gold_execution"),
-        "prediction_vm_steps": vm_step_summary(
-            records, "predicted_execution"
-        ),
+        "prediction_vm_steps": prediction_vm_steps,
         "gold_vm_steps": vm_step_summary(records, "gold_execution"),
         "primary_timing_cache_caveat": (
             "Agent tool executions may have warmed the database/OS page cache; "
@@ -1660,7 +1665,16 @@ def run_agent_evaluation(
         summary["notice"] = (
             "Scripted role outputs validate orchestration only and are not model accuracy."
         )
-    atomic_json(run_dir / "summary.json", summary)
+    atomic_json(
+        run_dir / "summary.json",
+        metric_summary(
+            test_suite_accuracy=test_suite["accuracy"],
+            exact_set_match_accuracy=exact["accuracy"],
+            result_match_accuracy=local_matches / total,
+            prediction_vm_steps=prediction_vm_steps,
+            prediction_query_timing=prediction_query_timing,
+        ),
+    )
     manifest["status"] = "completed" if pipeline_pass else "failed"
     manifest["finished_at"] = finished_wall.isoformat()
     manifest["elapsed_seconds"] = summary["elapsed_seconds"]
@@ -1673,5 +1687,5 @@ def run_agent_evaluation(
         "summary": "summary.json",
         "worker_runtime": "worker_runtime/",
     }
-    atomic_json(run_dir / "run_manifest.json", manifest)
+    atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     return {"run_directory": str(run_dir), "summary": summary}

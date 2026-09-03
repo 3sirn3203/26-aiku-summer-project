@@ -28,6 +28,11 @@ from text2sql.core.official_eval import (
     validate_official_environment,
 )
 from text2sql.core.progress import ProgressReporter
+from text2sql.core.reporting import (
+    compact_run_manifest,
+    empty_metric_summary,
+    metric_summary,
+)
 from text2sql.core.model_source import (
     expected_model_identity,
     inspect_peft_adapter,
@@ -174,7 +179,7 @@ def _write_failure(
         "elapsed_seconds": time.monotonic() - started_monotonic,
         "resume_supported": True,
     }
-    _atomic_json(run_dir / "summary.json", summary)
+    _atomic_json(run_dir / "summary.json", empty_metric_summary())
     manifest.update(
         {
             "status": "failed",
@@ -189,7 +194,7 @@ def _write_failure(
             },
         }
     )
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
 
 
 def _validate_resume_manifest(
@@ -480,7 +485,7 @@ def run_full_evaluation(
             db_id: _sha256_file(path) for db_id, path in db_paths.items()
         }
         manifest = {
-            "schema_version": 5,
+            "schema_version": 6,
             "run_id": run_id,
             "run_type": run_type,
             "status": "initializing",
@@ -540,7 +545,7 @@ def run_full_evaluation(
         }
     manifest["status"] = "generating"
     manifest["active_gpu_ids"] = list(gpu_ids)
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
 
     shards_root = run_dir / "shards"
     try:
@@ -614,7 +619,7 @@ def run_full_evaluation(
                 message_callback=reporter.message,
             )
             manifest["generation"].setdefault("attempts", []).append(attempt_result)
-            _atomic_json(run_dir / "run_manifest.json", manifest)
+            _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
         generated_by_id, final_shard_warnings = load_generation_shards(shards_root)
         shard_warnings.extend(final_shard_warnings)
         generation_records = validate_and_order_generation_records(
@@ -698,7 +703,7 @@ def run_full_evaluation(
         ) from exc
 
     manifest["status"] = "executing_sql"
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     records_path = run_dir / "records.jsonl"
     try:
         records = _read_evaluation_records(records_path)
@@ -785,7 +790,7 @@ def run_full_evaluation(
         ) from exc
 
     manifest["status"] = "official_evaluation"
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     try:
         previous_official_result = manifest.get("official_evaluation", {}).get(
             "result", {}
@@ -961,6 +966,10 @@ def run_full_evaluation(
         mock_contract_met = True
     pipeline_pass = base_contract_met and mock_contract_met
     finished_wall = datetime.now(timezone.utc)
+    prediction_query_timing = _query_timing_summary(
+        records, "predicted_execution"
+    )
+    prediction_vm_steps = _vm_step_summary(records, "predicted_execution")
     summary = {
         "schema_version": 5,
         "run_id": run_id,
@@ -1004,13 +1013,9 @@ def run_full_evaluation(
         "local_result_match_policy": (
             "single original Spider DB; diagnostic only; not an official metric"
         ),
-        "prediction_query_timing": _query_timing_summary(
-            records, "predicted_execution"
-        ),
+        "prediction_query_timing": prediction_query_timing,
         "gold_query_timing": _query_timing_summary(records, "gold_execution"),
-        "prediction_vm_steps": _vm_step_summary(
-            records, "predicted_execution"
-        ),
+        "prediction_vm_steps": prediction_vm_steps,
         "gold_vm_steps": _vm_step_summary(records, "gold_execution"),
         "selected_databases_unchanged": databases_unchanged,
         "started_at": started_wall.isoformat(),
@@ -1021,7 +1026,16 @@ def run_full_evaluation(
         summary["notice"] = (
             "Gold-backed mock results validate orchestration only and are not model accuracy."
         )
-    _atomic_json(run_dir / "summary.json", summary)
+    _atomic_json(
+        run_dir / "summary.json",
+        metric_summary(
+            test_suite_accuracy=test_suite["accuracy"],
+            exact_set_match_accuracy=exact["accuracy"],
+            result_match_accuracy=local_result_matches / total,
+            prediction_vm_steps=prediction_vm_steps,
+            prediction_query_timing=prediction_query_timing,
+        ),
+    )
     manifest["status"] = "completed" if pipeline_pass else "failed"
     manifest["finished_at"] = finished_wall.isoformat()
     manifest["elapsed_seconds"] = summary["elapsed_seconds"]
@@ -1035,5 +1049,5 @@ def run_full_evaluation(
     }
     if backend_name == "two_turn":
         manifest["artifacts"]["trajectories"] = "trajectories.jsonl"
-    _atomic_json(run_dir / "run_manifest.json", manifest)
+    _atomic_json(run_dir / "run_manifest.json", compact_run_manifest(manifest))
     return {"run_directory": str(run_dir), "summary": summary}

@@ -21,7 +21,9 @@ CODE_ROOT = Path(__file__).resolve().parents[1]
 class SpiderIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.config = load_config(CODE_ROOT / "configs" / "smoke.json")
+        cls.config = load_config(
+            CODE_ROOT / "configs" / "single_turn_zero_shot.json"
+        )
         if not cls.config.spider.root.is_dir():
             raise unittest.SkipTest("Spider data is not installed")
 
@@ -98,26 +100,34 @@ class SpiderIntegrationTests(unittest.TestCase):
             self.assertTrue((run_dir / "run_manifest.json").is_file())
             self.assertTrue((run_dir / "records.jsonl").is_file())
             self.assertTrue((run_dir / "summary.json").is_file())
+            persisted_summary = json.loads(
+                (run_dir / "summary.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                set(persisted_summary),
+                {
+                    "test_suite_accuracy",
+                    "exact_set_match_accuracy",
+                    "result_match_accuracy",
+                    "mean_vm_steps",
+                    "mean_latency_ms",
+                },
+            )
+            self.assertEqual(persisted_summary["test_suite_accuracy"], 1.0)
+            self.assertEqual(persisted_summary["exact_set_match_accuracy"], 1.0)
+            self.assertEqual(persisted_summary["result_match_accuracy"], 1.0)
             manifest = json.loads(
                 (run_dir / "run_manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(manifest["config"]["output"]["directory"], directory)
-            self.assertNotEqual(
-                manifest["config"]["output"]["directory"],
-                manifest["source_config"]["output"]["directory"],
-            )
+            self.assertNotIn("source_config", manifest)
+            self.assertEqual(len(manifest["source_config_sha256"]), 64)
             self.assertEqual(len(manifest["source"]["python_tree_sha256"]), 64)
-            self.assertIn(
-                "single_turn/smoke_runner.py",
-                manifest["source"]["python_files_sha256"],
+            self.assertEqual(
+                set(manifest["source"]),
+                {"package_version", "python_tree_sha256", "scope"},
             )
-            self.assertFalse(
-                any(
-                    path.startswith("multi_turn_agent/")
-                    for path in manifest["source"]["python_files_sha256"]
-                )
-            )
-            self.assertTrue(manifest["contract"]["official_spider_metric"])
+            self.assertTrue(manifest["config"]["official_evaluation"]["enabled"])
             self.assertTrue(manifest["official_evaluation"]["preflight"]["ok"])
             self.assertTrue(manifest["official_evaluation"]["result"]["ok"])
             records = [
@@ -168,8 +178,16 @@ class SpiderIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure"]["stage"], "backend_initialization")
-            self.assertFalse(summary["pipeline_pass"])
-            self.assertEqual(summary["processed_examples"], 0)
+            self.assertEqual(
+                summary,
+                {
+                    "test_suite_accuracy": None,
+                    "exact_set_match_accuracy": None,
+                    "result_match_accuracy": None,
+                    "mean_vm_steps": None,
+                    "mean_latency_ms": None,
+                },
+            )
             self.assertEqual((run_dir / "records.jsonl").read_text(), "")
 
     def test_mock_requires_every_prediction_to_execute_and_match(self) -> None:

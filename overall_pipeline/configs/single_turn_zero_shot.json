@@ -1,0 +1,49 @@
+{
+  "spider": {
+    "root": "../../data/spider_data",
+    "examples_file": "dev.json",
+    "tables_file": "tables.json",
+    "database_dir": "database",
+    "split": "dev"
+  },
+  "model": {
+    "source": "hub",
+    "id": "Qwen/Qwen2.5-Coder-0.5B-Instruct",
+    "revision": "ea3f2471cf1b1f0db85067f1ef93848e38e88c25",
+    "dtype": "float32",
+    "device": "cuda:0",
+    "attention_implementation": "eager",
+    "trust_remote_code": false,
+    "cache_dir": null
+  },
+  "generation": {
+    "do_sample": false,
+    "num_beams": 1,
+    "repetition_penalty": 1.0,
+    "max_time_seconds": 120.0,
+    "max_input_tokens": 8192,
+    "max_new_tokens": 512,
+    "batch_size": 1
+  },
+  "execution": {
+    "timeout_seconds": 5.0,
+    "max_sql_bytes": 100000,
+    "max_result_rows": 10000,
+    "max_result_bytes": 2000000,
+    "worker_memory_limit_bytes": 1073741824
+  },
+  "official_evaluation": {
+    "enabled": true,
+    "evaluator_root": "../vendor/spider_test_suite_eval",
+    "test_suite_database_root": "../../data/spider_test_suite/database",
+    "upstream_url": "https://github.com/taoyds/test-suite-sql-eval.git",
+    "upstream_commit": "e97acc546ecbee8fa27fa8dbf025ef61493a876c",
+    "plug_value": false,
+    "keep_distinct": false,
+    "timeout_seconds": 60.0,
+    "nltk_data_dir": "../../data/nltk_data"
+  },
+  "output": {
+    "directory": "../outputs/single_turn"
+  }
+}

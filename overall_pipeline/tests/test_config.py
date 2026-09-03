@@ -13,7 +13,7 @@ CODE_ROOT = Path(__file__).resolve().parents[1]
 
 class ConfigTests(unittest.TestCase):
     def test_contract_config_loads(self) -> None:
-        config = load_config(CODE_ROOT / "configs" / "smoke.json")
+        config = load_config(CODE_ROOT / "configs" / "single_turn_zero_shot.json")
         self.assertEqual(config.model.model_id, "Qwen/Qwen2.5-Coder-0.5B-Instruct")
         self.assertEqual(
             config.model.revision,
@@ -26,6 +26,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.generation.repetition_penalty, 1.0)
         self.assertEqual(config.generation.max_time_seconds, 120.0)
         self.assertEqual(len(config.smoke.samples), 8)
+        self.assertNotIn("smoke", config.raw)
         self.assertEqual(config.spider.split, "dev")
         self.assertTrue(config.official_evaluation.enabled)
         self.assertEqual(
@@ -51,7 +52,7 @@ class ConfigTests(unittest.TestCase):
         )
 
     def test_full_dev_config_pins_model_revision_and_output_root(self) -> None:
-        config = load_config(CODE_ROOT / "configs" / "evaluate_dev.json")
+        config = load_config(CODE_ROOT / "configs" / "single_turn_zero_shot.json")
         self.assertEqual(config.spider.split, "dev")
         self.assertEqual(
             config.model.revision,
@@ -59,7 +60,7 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             config.output.directory,
-            (CODE_ROOT / "outputs" / "evaluation").resolve(),
+            (CODE_ROOT / "outputs" / "single_turn").resolve(),
         )
 
     def test_local_model_path_is_resolved_relative_to_config(self) -> None:
@@ -86,7 +87,7 @@ class ConfigTests(unittest.TestCase):
         self._assert_rejected(payload)
 
     def test_contract_rejects_remote_code(self) -> None:
-        source = CODE_ROOT / "configs" / "smoke.json"
+        source = CODE_ROOT / "configs" / "single_turn_zero_shot.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["model"]["trust_remote_code"] = True
         with tempfile.TemporaryDirectory() as directory:
@@ -96,7 +97,7 @@ class ConfigTests(unittest.TestCase):
                 load_config(path)
 
     def test_contract_rejects_non_finite_time_limit(self) -> None:
-        source = CODE_ROOT / "configs" / "smoke.json"
+        source = CODE_ROOT / "configs" / "single_turn_zero_shot.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["generation"]["max_time_seconds"] = float("nan")
         with tempfile.TemporaryDirectory() as directory:
@@ -142,7 +143,7 @@ class ConfigTests(unittest.TestCase):
 
     @staticmethod
     def _contract_payload() -> dict:
-        source = CODE_ROOT / "configs" / "smoke.json"
+        source = CODE_ROOT / "configs" / "single_turn_zero_shot.json"
         return json.loads(source.read_text(encoding="utf-8"))
 
     def _assert_rejected(self, payload: dict) -> None:

@@ -25,7 +25,9 @@ CODE_ROOT = Path(__file__).resolve().parents[1]
 class DistributedEvaluationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.config = load_config(CODE_ROOT / "configs" / "smoke.json")
+        cls.config = load_config(
+            CODE_ROOT / "configs" / "single_turn_zero_shot.json"
+        )
         if not cls.config.spider.root.is_dir():
             raise unittest.SkipTest("Spider data is not installed")
 
@@ -299,7 +301,20 @@ class DistributedEvaluationTests(unittest.TestCase):
             manifest = json.loads(
                 (run_dir / "run_manifest.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(manifest["schema_version"], 5)
+            self.assertEqual(manifest["schema_version"], 6)
+            persisted_summary = json.loads(
+                (run_dir / "summary.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                persisted_summary,
+                {
+                    "test_suite_accuracy": 1.0,
+                    "exact_set_match_accuracy": 1.0,
+                    "result_match_accuracy": 1.0,
+                    "mean_vm_steps": None,
+                    "mean_latency_ms": 1.0,
+                },
+            )
             self.assertEqual(
                 {
                     status["physical_gpu"]
