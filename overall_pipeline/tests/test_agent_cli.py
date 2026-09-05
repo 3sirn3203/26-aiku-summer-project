@@ -14,7 +14,7 @@ from text2sql.cli import main
 
 
 CODE_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = CODE_ROOT / "configs" / "agent_evaluate_dev.json"
+CONFIG_PATH = CODE_ROOT / "configs" / "multi_turn_multi_agent_zero_shot.json"
 
 
 class AgentCliTests(unittest.TestCase):

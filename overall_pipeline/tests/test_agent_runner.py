@@ -21,12 +21,15 @@ from text2sql.multi_turn_agent.config import (
     load_agent_config,
 )
 from text2sql.multi_turn_agent.protocol import RoleTask, RoleTaskResult
-from text2sql.multi_turn_agent.runner import run_agent_evaluation
+from text2sql.multi_turn_agent.runner import (
+    _multi_turn_cost_metrics,
+    run_agent_evaluation,
+)
 from text2sql.multi_turn_agent.scheduler import WorkerInfrastructureError
 
 
 CODE_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = CODE_ROOT / "configs" / "agent_evaluate_dev.json"
+CONFIG_PATH = CODE_ROOT / "configs" / "multi_turn_multi_agent_zero_shot.json"
 
 
 def _jsonl(path: Path) -> Sequence[Mapping[str, Any]]:
@@ -221,6 +224,51 @@ class AgentRunnerTests(unittest.TestCase):
 
         return execute
 
+    def test_multi_turn_cost_metrics_average_per_episode_cumulative_work(self) -> None:
+        trajectories = [
+            {
+                "iterations": [
+                    {
+                        "execution_observation": {
+                            "vm_steps_lower_bound": 1_000,
+                            "query_elapsed_ns": 1_000_000,
+                        }
+                    }
+                ]
+            },
+            {
+                "iterations": [
+                    {
+                        "execution_observation": {
+                            "vm_steps_lower_bound": 2_000,
+                            "query_elapsed_ns": 2_000_000,
+                        }
+                    },
+                    {
+                        "execution_observation": {
+                            "vm_steps_lower_bound": None,
+                            "query_elapsed_ns": None,
+                        }
+                    },
+                    {
+                        "execution_observation": {
+                            "vm_steps_lower_bound": 3_000,
+                            "query_elapsed_ns": 3_000_000,
+                        }
+                    },
+                ]
+            },
+        ]
+
+        self.assertEqual(
+            _multi_turn_cost_metrics(trajectories),
+            {
+                "mean_iterations_used": 2.0,
+                "mean_cumulative_tool_vm_steps_lower_bound": 3_000.0,
+                "mean_cumulative_tool_query_latency_ms": 3.0,
+            },
+        )
+
     def test_scripted_mock_end_to_end_writes_ordered_compact_safe_artifacts(self) -> None:
         _ScriptedCoordinator.reset()
         execution_events = []
@@ -294,6 +342,9 @@ class AgentRunnerTests(unittest.TestCase):
                     "result_match_accuracy": 1.0,
                     "mean_vm_steps": 5_000.0,
                     "mean_latency_ms": 0.001,
+                    "mean_iterations_used": 1.0,
+                    "mean_cumulative_tool_vm_steps_lower_bound": 5_000.0,
+                    "mean_cumulative_tool_query_latency_ms": 0.001,
                 },
             )
             self.assertEqual(manifest["schema_version"], 2)

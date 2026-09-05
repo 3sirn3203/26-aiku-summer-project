@@ -65,10 +65,21 @@ from text2sql.multi_turn_agent.workflow import (
 
 
 _TASK_ITERATION = re.compile(r":iteration-([1-3])$")
+_MULTI_TURN_COST_METRIC_KEYS = (
+    "mean_iterations_used",
+    "mean_cumulative_tool_vm_steps_lower_bound",
+    "mean_cumulative_tool_query_latency_ms",
+)
 
 
 class AgentRunInterrupted(RuntimeError):
     """Raised after a parent signal has synchronously terminated role workers."""
+
+
+def _empty_multi_turn_metric_summary() -> Dict[str, Optional[float]]:
+    summary: Dict[str, Optional[float]] = empty_metric_summary()
+    summary.update({key: None for key in _MULTI_TURN_COST_METRIC_KEYS})
+    return summary
 
 
 def _install_worker_cleanup_handlers(
@@ -614,6 +625,57 @@ def _tool_vm_step_summary(
     return summary
 
 
+def _multi_turn_cost_metrics(
+    trajectories: Sequence[Mapping[str, Any]],
+) -> Dict[str, Optional[float]]:
+    if not trajectories:
+        return {key: None for key in _MULTI_TURN_COST_METRIC_KEYS}
+
+    iteration_counts = []
+    cumulative_vm_steps = []
+    cumulative_query_latency_ms = []
+    for trajectory in trajectories:
+        iterations = trajectory.get("iterations", [])
+        if not isinstance(iterations, list):
+            iterations = []
+        iteration_counts.append(len(iterations))
+        vm_steps = 0
+        query_elapsed_ns = 0
+        for iteration in iterations:
+            if not isinstance(iteration, Mapping):
+                continue
+            observation = iteration.get("execution_observation")
+            if not isinstance(observation, Mapping):
+                continue
+            vm_value = observation.get("vm_steps_lower_bound")
+            if (
+                isinstance(vm_value, int)
+                and not isinstance(vm_value, bool)
+                and vm_value >= 0
+            ):
+                vm_steps += vm_value
+            latency_value = observation.get("query_elapsed_ns")
+            if (
+                isinstance(latency_value, int)
+                and not isinstance(latency_value, bool)
+                and latency_value >= 0
+            ):
+                query_elapsed_ns += latency_value
+        cumulative_vm_steps.append(vm_steps)
+        cumulative_query_latency_ms.append(query_elapsed_ns / 1_000_000)
+
+    count = len(trajectories)
+    return {
+        "mean_iterations_used": sum(iteration_counts) / count,
+        "mean_cumulative_tool_vm_steps_lower_bound": (
+            sum(cumulative_vm_steps) / count
+        ),
+        "mean_cumulative_tool_query_latency_ms": (
+            sum(cumulative_query_latency_ms) / count
+        ),
+    }
+
+
 def _trajectory_payload(
     run_id: str,
     example: SpiderExample,
@@ -674,7 +736,7 @@ def _write_failure(
         "finished_at": finished.isoformat(),
         "elapsed_seconds": time.monotonic() - started_monotonic,
     }
-    atomic_json(run_dir / "summary.json", empty_metric_summary())
+    atomic_json(run_dir / "summary.json", _empty_multi_turn_metric_summary())
     manifest.update(
         {
             "status": "failed",
@@ -1598,6 +1660,7 @@ def run_agent_evaluation(
         records, "predicted_execution"
     )
     prediction_vm_steps = vm_step_summary(records, "predicted_execution")
+    multi_turn_cost_metrics = _multi_turn_cost_metrics(trajectories)
     summary = {
         "schema_version": 1,
         "run_id": run_id,
@@ -1652,6 +1715,7 @@ def run_agent_evaluation(
         "gold_query_timing": query_timing_summary(records, "gold_execution"),
         "prediction_vm_steps": prediction_vm_steps,
         "gold_vm_steps": vm_step_summary(records, "gold_execution"),
+        **multi_turn_cost_metrics,
         "primary_timing_cache_caveat": (
             "Agent tool executions may have warmed the database/OS page cache; "
             "no explicit cache reset was performed."
@@ -1665,16 +1729,15 @@ def run_agent_evaluation(
         summary["notice"] = (
             "Scripted role outputs validate orchestration only and are not model accuracy."
         )
-    atomic_json(
-        run_dir / "summary.json",
-        metric_summary(
-            test_suite_accuracy=test_suite["accuracy"],
-            exact_set_match_accuracy=exact["accuracy"],
-            result_match_accuracy=local_matches / total,
-            prediction_vm_steps=prediction_vm_steps,
-            prediction_query_timing=prediction_query_timing,
-        ),
+    persisted_summary = metric_summary(
+        test_suite_accuracy=test_suite["accuracy"],
+        exact_set_match_accuracy=exact["accuracy"],
+        result_match_accuracy=local_matches / total,
+        prediction_vm_steps=prediction_vm_steps,
+        prediction_query_timing=prediction_query_timing,
     )
+    persisted_summary.update(multi_turn_cost_metrics)
+    atomic_json(run_dir / "summary.json", persisted_summary)
     manifest["status"] = "completed" if pipeline_pass else "failed"
     manifest["finished_at"] = finished_wall.isoformat()
     manifest["elapsed_seconds"] = summary["elapsed_seconds"]

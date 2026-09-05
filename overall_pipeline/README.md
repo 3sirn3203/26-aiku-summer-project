@@ -39,7 +39,7 @@ code/
 │   ├── single_turn_sft_instruct.json
 │   ├── single_turn_sft.json
 │   ├── single_turn_sft_augmented.json
-│   └── agent_evaluate_dev.json # Planner–Coder–Verifier smoke/full dev
+│   └── multi_turn_multi_agent_zero_shot.json # Planner–Coder–Verifier smoke/full dev
 ├── src/text2sql/
 │   ├── core/                   # 데이터·모델·SQL 실행·공식 평가 공통 인프라
 │   ├── single_turn/            # 고정한 single-turn baseline
@@ -543,7 +543,7 @@ package version `0.5.1`부터 적용됩니다.
 ## Multi-turn Planner–Coder–Verifier 평가
 
 Agentic workflow는 single-turn baseline을 확장하거나 대체하지 않습니다.
-`multi_turn_agent/`, `configs/agent_evaluate_dev.json`,
+`multi_turn_agent/`, `configs/multi_turn_multi_agent_zero_shot.json`,
 `outputs/multi_turn/`을 사용하는 별도 실험입니다. 두 방식은 공통 Spider
 loader, read-only SQL executor와 공식 evaluator만 공유합니다. Agentic run의
 source contract은 `config.py`, `core/`, `multi_turn_agent/`만 포함하므로
@@ -567,7 +567,7 @@ metadata일 뿐이며, 현재 코드에는 fine-tuning이나 reward 계산이 �
 교체할 수 있습니다. 세 역할 모두 FP32, eager attention, pure greedy decoding,
 batch size 1, 입력 8,192 tokens, generation soft limit 120초로 고정됩니다.
 
-예를 들어 Coder만 SFT 모델로 교체하려면 `configs/agent_evaluate_dev.json`을
+예를 들어 Coder만 SFT 모델로 교체하려면 `configs/multi_turn_multi_agent_zero_shot.json`을
 복사하고 `roles.coder.model`의 `source`, `id`, `revision`만 각각 `local`, 로컬
 checkpoint 경로, `local`로 바꿉니다. Planner와 Verifier는 기존 Hub checkpoint를
 그대로 사용할 수 있습니다. CLI에서 모델 경로를 override하지 않으므로 실험마다
@@ -636,7 +636,7 @@ episode를 비동기 stage queue로 처리합니다. Worker당 outstanding role 
 
 ```bash
 python -m text2sql agent-doctor \
-  --config configs/agent_evaluate_dev.json
+  --config configs/multi_turn_multi_agent_zero_shot.json
 ```
 
 Planner/Verifier GPU에는 8 GiB, Coder GPU에는 4 GiB 이상의 free VRAM이 필요합니다.
@@ -647,7 +647,7 @@ GPU, logical `cuda:0`, FP32 CUDA probe와 free VRAM을 보고하지만 모델 �
 
 ```bash
 python -m text2sql agent-doctor \
-  --config configs/agent_evaluate_dev.json \
+  --config configs/multi_turn_multi_agent_zero_shot.json \
   --planner-gpus 0,1,2 \
   --coder-gpus 3,4 \
   --verifier-gpus 5,6,7
@@ -664,7 +664,7 @@ checkpoint, SQL 안전 실행, 공식 평가 artifact를 검증합니다.
 ```bash
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src \
 .venv/bin/python -m text2sql agent-evaluate \
-  --config configs/agent_evaluate_dev.json \
+  --config configs/multi_turn_multi_agent_zero_shot.json \
   --backend mock \
   --selection smoke \
   --run-name local-agent-smoke
@@ -684,7 +684,7 @@ Mock은 고정된 Planner JSON, Coder SQL과 Verifier 결정을 반환하는 배
 ```bash
 timeout --signal=TERM --kill-after=30s 4h \
 python -m text2sql agent-evaluate \
-  --config configs/agent_evaluate_dev.json \
+  --config configs/multi_turn_multi_agent_zero_shot.json \
   --backend hf \
   --selection smoke \
   --run-name qwen-agent-server-smoke \
@@ -702,7 +702,7 @@ Exact/Test Suite metric `valid=true`, final SQL timing 생성, DB hash 불변이
 ```bash
 timeout --signal=TERM --kill-after=30s 24h \
 python -m text2sql agent-evaluate \
-  --config configs/agent_evaluate_dev.json \
+  --config configs/multi_turn_multi_agent_zero_shot.json \
   --backend hf \
   --selection all \
   --run-name qwen-agent-zero-shot-dev
@@ -722,7 +722,7 @@ parent-death signal도 설정되어 부모가 강제로 사라진 경우 GPU pro
 ```bash
 timeout --signal=TERM --kill-after=30s 24h \
 python -m text2sql agent-evaluate \
-  --config configs/agent_evaluate_dev.json \
+  --config configs/multi_turn_multi_agent_zero_shot.json \
   --backend hf \
   --selection all \
   --resume-run qwen-agent-zero-shot-dev
@@ -744,7 +744,9 @@ Agentic run은 `outputs/multi_turn/<run_id>/`에 다음을 저장합니다.
 - `run_manifest.json`: 실효 config, contract hash, model revision, GPU/worker 상태,
   source·dataset hash와 실행 상태. 원본 config나 상세 worker metadata처럼 다른
   artifact와 중복되는 내용은 저장하지 않습니다.
-- `summary.json`: 아래에 정의한 다섯 개 최종 metric만 저장
+- `summary.json`: 공통 최종 metric 5개와 multi-turn 전용 비용 metric
+  `mean_iterations_used`, `mean_cumulative_tool_vm_steps_lower_bound`,
+  `mean_cumulative_tool_query_latency_ms`를 저장
 - run 내부 episode checkpoint: stage-level resume를 위한 원자적 중간 상태
 
 전체 prompt message 본문과 per-record worker/GPU 정보는 저장하지 않습니다. GPU
@@ -753,6 +755,9 @@ Agentic run은 `outputs/multi_turn/<run_id>/`에 다음을 저장합니다.
 각 iteration에서 Verifier가 보는 tool 실행의 `query_elapsed_ns`와 loop 종료 뒤
 final SQL을 새로 실행한 `predicted_execution.query_elapsed_ns`를 모두 보존합니다.
 Single-turn과 비교하거나 향후 RL 입력 후보로 사용할 primary timing은 후자입니다.
+Multi-turn 전용 누적 metric은 문제마다 iteration 내부 tool 실행값을 먼저 합산한
+뒤 전체 문제에 대해 평균을 냅니다. 평가용 final SQL 재실행, gold SQL 실행과 공식
+evaluator 시간은 이 누적값에 포함하지 않습니다.
 다만 agent loop가 같은 원본 DB에서 후보 SQL을 먼저 실행하므로 OS/SQLite cache가
 final 재실행 전에 warm-up될 수 있습니다. 이 cache 정책을 적용하므로,
 이 값은 엄격한 cold-cache latency로 해석하지 않습니다. 현재 범위에는 이 원시
