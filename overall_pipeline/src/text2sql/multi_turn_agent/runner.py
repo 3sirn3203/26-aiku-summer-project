@@ -173,15 +173,18 @@ def _experiment_config_payload(config: AgentAppConfig) -> Dict[str, Any]:
 
 def _agent_contract(config: AgentAppConfig, selection: str) -> Dict[str, Any]:
     payload = {
-        "schema_version": 1,
+        "schema_version": 3,
         "workflow": "planner_coder_execute_verifier",
         "selection": selection,
         "max_iterations": config.workflow.max_iterations,
         "role_order": ["planner", "coder", "verifier"],
         "checkpoint_stages": ["planner", "coder", "execution", "verifier"],
-        "planner_approach": ["direct", "iterative"],
+        "planner_output_fields": ["tables", "columns", "plan"],
+        "planner_schema_identifier_validation": True,
+        "planner_format_retry_limit": 1,
+        "verifier_output_fields": ["decision", "feedback"],
         "verifier_decision": ["stop", "continue"],
-        "json_repair_generation": False,
+        "verifier_format_retry_limit": 1,
         "verifier_has_stop_authority_after_execution_error": True,
         "third_continue_policy": "evaluate_latest_candidate",
         "gold_available_to_roles": False,
@@ -315,17 +318,26 @@ def _worker_specs(
     return result
 
 
-def _mock_output(role: str, iteration: int) -> str:
+def _mock_output(
+    role: str, iteration: int, serialized_schema: Optional[str] = None
+) -> str:
     # This scripted path validates orchestration without using gold SQL.  SELECT
     # 1 is intentionally independent of the question and therefore cannot be
     # reported as model accuracy.
     if role == "planner":
+        table = "singer"
+        column = "id"
+        if serialized_schema:
+            table_match = re.search(r'^Table "([^"]+)"$', serialized_schema, re.MULTILINE)
+            column_match = re.search(r'^  - "([^"]+)"\s+', serialized_schema, re.MULTILINE)
+            if table_match and column_match:
+                table = table_match.group(1)
+                column = column_match.group(1)
         return json.dumps(
             {
-                "iteration": iteration,
-                "approach": "direct",
-                "plan": ["Translate the question using only the supplied schema."],
-                "coder_instruction": "Return one bounded read-only SQLite query.",
+                "tables": [table],
+                "columns": ["%s.%s" % (table, column)],
+                "plan": "Use the supplied schema to derive the answer requested by the question.",
             },
             separators=(",", ":"),
         )
@@ -334,10 +346,8 @@ def _mock_output(role: str, iteration: int) -> str:
     if role == "verifier":
         return json.dumps(
             {
-                "iteration": iteration,
                 "decision": "stop",
-                "reason": "Scripted orchestration check completed.",
-                "feedback": "",
+                "feedback": "Scripted orchestration check completed.",
             },
             separators=(",", ":"),
         )
@@ -861,7 +871,7 @@ def _run_episode_tasks(
                     "iteration": iteration,
                     "messages": request.messages,
                     "mock_output": (
-                        _mock_output(role, iteration)
+                        _mock_output(role, iteration, schema_text)
                         if backend_name == "mock"
                         else None
                     ),
@@ -1607,8 +1617,15 @@ def run_agent_evaluation(
             parsing = iteration.get("sql_parsing")
             if isinstance(parsing, Mapping):
                 iteration_sql_parsing_statuses[str(parsing.get("status"))] += 1
-            for role in ("planner", "coder", "verifier"):
-                trace = iteration.get(role)
+            for trace_key in (
+                "planner",
+                "planner_initial_attempt",
+                "coder",
+                "verifier",
+                "verifier_initial_attempt",
+            ):
+                role = trace_key.removesuffix("_initial_attempt")
+                trace = iteration.get(trace_key)
                 if not isinstance(trace, Mapping):
                     continue
                 generation = trace.get("generation")

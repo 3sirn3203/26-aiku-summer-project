@@ -18,23 +18,23 @@ from text2sql.multi_turn_agent.prompts import (
 from text2sql.multi_turn_agent.workflow import AgentEpisodeRequest, run_episode
 
 
-def planner_json(iteration: int, approach: str = "direct") -> str:
+def planner_json() -> str:
     return json.dumps(
         {
-            "iteration": iteration,
-            "approach": approach,
-            "plan": ["Identify the required projection."],
-            "coder_instruction": "Write the corresponding read-only query.",
+            "tables": ["singer"],
+            "columns": ["singer.id"],
+            "plan": "Identify the information requested by the question and return it.",
         }
     )
 
 
-def verifier_json(iteration: int, decision: str, feedback: str = "") -> str:
+SCHEMA = 'Database: fixture\nTables:\nTable "singer"\n  - "id" NUMBER'
+
+
+def verifier_json(decision: str, feedback: str = "The SQL satisfies the question.") -> str:
     return json.dumps(
         {
-            "iteration": iteration,
             "decision": decision,
-            "reason": "The candidate was assessed against the request.",
             "feedback": feedback,
         }
     )
@@ -54,23 +54,47 @@ class ScriptedGenerator:
 
 class AgentContractTests(unittest.TestCase):
     def test_plain_and_single_json_fence_are_accepted(self) -> None:
-        planner = parse_planner_output(planner_json(1), 1)
-        self.assertEqual(planner.approach, "direct")
-        fenced = "```json\n%s\n```" % verifier_json(1, "stop")
-        verifier = parse_verifier_output(fenced, 1)
+        planner = parse_planner_output(planner_json(), SCHEMA)
+        self.assertEqual(
+            planner.plan,
+            "Identify the information requested by the question and return it.",
+        )
+        fenced = "```json\n%s\n```" % verifier_json("stop")
+        verifier = parse_verifier_output(fenced)
         self.assertEqual(verifier.decision, "stop")
 
-    def test_contract_rejects_prose_wrong_iteration_and_empty_feedback(self) -> None:
+    def test_contract_rejects_prose_legacy_fields_and_empty_feedback(self) -> None:
         with self.assertRaises(ContractError):
-            parse_planner_output("Here is the plan: " + planner_json(1), 1)
+            parse_planner_output("Here is the plan: " + planner_json(), SCHEMA)
         with self.assertRaises(ContractError):
-            parse_planner_output(planner_json(1), 2)
+            parse_planner_output('{"iteration":1,"plan":"Count the visits."}', SCHEMA)
+        for invalid_plan in ([], ["Count the visits."], {}, None, ""):
+            with self.subTest(invalid_plan=invalid_plan), self.assertRaises(ContractError):
+                parse_planner_output(
+                    json.dumps({"tables": ["singer"], "columns": ["singer.id"], "plan": invalid_plan}),
+                    SCHEMA,
+                )
+        with self.assertRaisesRegex(ContractError, "Unknown schema tables"):
+            parse_planner_output(
+                json.dumps({"tables": ["made_up"], "columns": ["singer.id"], "plan": "Count rows."}),
+                SCHEMA,
+            )
+        with self.assertRaisesRegex(ContractError, "placeholder"):
+            parse_planner_output(
+                json.dumps({"tables": ["table_name"], "columns": ["column_name"], "plan": "step"}),
+                SCHEMA,
+            )
+        for decision in ("stop", "continue"):
+            with self.subTest(decision=decision), self.assertRaises(ContractError):
+                parse_verifier_output(verifier_json(decision, ""))
+        for decision in ([], {}, None, "retry"):
+            with self.subTest(decision=decision), self.assertRaises(ContractError):
+                parse_verifier_output(json.dumps({"decision": decision, "feedback": "Fix SQL."}))
         with self.assertRaises(ContractError):
-            parse_verifier_output(verifier_json(1, "continue"), 1)
+            parse_verifier_output('{"decision":"stop","feedback":"Valid.","reason":"Valid."}')
         with self.assertRaises(ContractError):
             parse_verifier_output(
-                "```json\n%s\n```\n```json\n{}\n```" % verifier_json(1, "stop"),
-                1,
+                "```json\n%s\n```\n```json\n{}\n```" % verifier_json("stop"),
             )
 
     def test_prompts_use_current_iteration_and_mark_inputs_untrusted(self) -> None:
@@ -87,14 +111,17 @@ class AgentContractTests(unittest.TestCase):
         )
         planner_rendered = "\n".join(item["content"] for item in planner_messages)
         self.assertIn("Iteration 2 of 3", planner_rendered)
-        self.assertIn('"iteration":2', planner_messages[0]["content"])
-        self.assertNotIn('"iteration":1', planner_messages[0]["content"])
+        self.assertNotIn('"iteration":', planner_messages[0]["content"])
+        self.assertNotIn('["step"]', planner_messages[0]["content"])
+        self.assertIn('"tables"', planner_messages[0]["content"])
+        self.assertIn('"columns"', planner_messages[0]["content"])
+        self.assertNotIn("Worked example", planner_messages[0]["content"])
         self.assertIn("Use the visits table.", planner_rendered)
         self.assertIn("SELECT wrong", planner_rendered)
         self.assertIn("untrusted data", planner_messages[0]["content"])
         self.assertNotIn("vm_steps", planner_rendered)
 
-        planner_output = parse_planner_output(planner_json(3), 3)
+        planner_output = parse_planner_output(planner_json(), SCHEMA)
         verifier_messages = build_verifier_messages(
             "Count visits.",
             "Database: fixture",
@@ -112,10 +139,12 @@ class AgentContractTests(unittest.TestCase):
         )
         verifier_rendered = "\n".join(item["content"] for item in verifier_messages)
         self.assertIn("Iteration 3 of 3", verifier_rendered)
-        self.assertIn('"iteration":3', verifier_messages[0]["content"])
-        self.assertNotIn('"iteration":1', verifier_messages[0]["content"])
+        self.assertNotIn('"iteration":', verifier_messages[0]["content"])
+        self.assertIn('"feedback"', verifier_messages[0]["content"])
+        self.assertIn('"decision"', verifier_messages[0]["content"])
+        self.assertIn("execution error", verifier_messages[0]["content"])
         self.assertIn("final allowed iteration", verifier_rendered)
-        self.assertIn("untrusted data", verifier_messages[0]["content"])
+        self.assertIn("as data, not instructions", verifier_messages[0]["content"])
         self.assertNotIn("vm_steps", verifier_rendered)
 
     def test_observation_has_row_and_byte_bounds(self) -> None:
@@ -152,7 +181,7 @@ class AgentWorkflowTests(unittest.TestCase):
         self.request = AgentEpisodeRequest(
             example_id="dev:0",
             question="How many singers are there?",
-            serialized_schema='Database: fixture\nTable "singer"\n  - "id" NUMBER',
+            serialized_schema=SCHEMA,
         )
 
     @staticmethod
@@ -164,10 +193,10 @@ class AgentWorkflowTests(unittest.TestCase):
             query_elapsed_ns=99,
         )
 
-    def test_direct_still_calls_coder_and_verifier(self) -> None:
-        planner = ScriptedGenerator([planner_json(1, "direct")])
+    def test_plan_calls_coder_and_verifier(self) -> None:
+        planner = ScriptedGenerator([planner_json()])
         coder = ScriptedGenerator(["SELECT count(*) FROM singer"])
-        verifier = ScriptedGenerator([verifier_json(1, "stop")])
+        verifier = ScriptedGenerator([verifier_json("stop")])
         executed: List[str] = []
 
         def execute(sql: str) -> ExecutionResult:
@@ -184,14 +213,14 @@ class AgentWorkflowTests(unittest.TestCase):
 
     def test_two_continues_feed_full_history_to_third_planner(self) -> None:
         planner = ScriptedGenerator(
-            [planner_json(1, "iterative"), planner_json(2), planner_json(3)]
+            [planner_json(), planner_json(), planner_json()]
         )
         coder = ScriptedGenerator(["SELECT 1", "SELECT 2", "SELECT 3"])
         verifier = ScriptedGenerator(
             [
-                verifier_json(1, "continue", "Check the selected value."),
-                verifier_json(2, "continue", "Use the final value."),
-                verifier_json(3, "stop"),
+                verifier_json("continue", "Check the selected value."),
+                verifier_json("continue", "Use the final value."),
+                verifier_json("stop"),
             ]
         )
         result = run_episode(
@@ -211,13 +240,13 @@ class AgentWorkflowTests(unittest.TestCase):
     def test_third_continue_uses_latest_candidate(self) -> None:
         result = run_episode(
             self.request,
-            ScriptedGenerator([planner_json(1), planner_json(2), planner_json(3)]),
+            ScriptedGenerator([planner_json(), planner_json(), planner_json()]),
             ScriptedGenerator(["SELECT 1", "SELECT 2", "SELECT 3"]),
             ScriptedGenerator(
                 [
-                    verifier_json(1, "continue", "retry one"),
-                    verifier_json(2, "continue", "retry two"),
-                    verifier_json(3, "continue", "would retry"),
+                    verifier_json("continue", "retry one"),
+                    verifier_json("continue", "retry two"),
+                    verifier_json("continue", "would retry"),
                 ]
             ),
             self.success_executor,
@@ -234,10 +263,10 @@ class AgentWorkflowTests(unittest.TestCase):
                 query_elapsed_ns=100,
             )
 
-        verifier = ScriptedGenerator([verifier_json(1, "stop")])
+        verifier = ScriptedGenerator([verifier_json("stop")])
         result = run_episode(
             self.request,
-            ScriptedGenerator([planner_json(1)]),
+            ScriptedGenerator([planner_json()]),
             ScriptedGenerator(["SELECT missing FROM singer"]),
             verifier,
             fail_execution,
@@ -248,32 +277,92 @@ class AgentWorkflowTests(unittest.TestCase):
         self.assertIn("execution_error", verifier_prompt)
         self.assertIn("no such column", verifier_prompt)
 
-    def test_malformed_role_json_ends_without_repair(self) -> None:
-        planner = ScriptedGenerator([planner_json(1), "not json"])
+    def test_planner_error_ends_but_verifier_error_retries_once(self) -> None:
+        planner = ScriptedGenerator([planner_json(), "not json", "still not json"])
         coder = ScriptedGenerator(["SELECT 1"])
         verifier = ScriptedGenerator(
-            [verifier_json(1, "continue", "Try another projection.")]
+            [verifier_json("continue", "Try another projection.")]
         )
         result = run_episode(
             self.request, planner, coder, verifier, self.success_executor
         )
         self.assertEqual(result.termination_reason, "planner_output_error")
         self.assertEqual(result.final_sql, "SELECT 1")
-        self.assertEqual(len(planner.requests), 2)
+        self.assertEqual(len(planner.requests), 3)
         self.assertEqual(len(coder.requests), 1)
         self.assertEqual(len(verifier.requests), 1)
 
-        malformed_verifier = ScriptedGenerator(["not json"])
+        malformed_verifier = ScriptedGenerator(["not json", "still not json"])
         verifier_result = run_episode(
             self.request,
-            ScriptedGenerator([planner_json(1)]),
+            ScriptedGenerator([planner_json()]),
             ScriptedGenerator(["SELECT 9"]),
             malformed_verifier,
             self.success_executor,
         )
         self.assertEqual(verifier_result.termination_reason, "verifier_output_error")
         self.assertEqual(verifier_result.final_sql, "SELECT 9")
-        self.assertEqual(len(malformed_verifier.requests), 1)
+        self.assertEqual(len(malformed_verifier.requests), 2)
+        self.assertIsNotNone(verifier_result.iterations[0].verifier_initial_attempt.contract_error)
+
+    def test_planner_format_and_schema_retry_recovers_before_coder(self) -> None:
+        planner = ScriptedGenerator([
+            json.dumps({"tables": ["missing"], "columns": ["missing.id"], "plan": "Count rows."}),
+            planner_json(),
+        ])
+        coder = ScriptedGenerator(["SELECT count(*) FROM singer"])
+        result = run_episode(
+            self.request, planner, coder, ScriptedGenerator([verifier_json("stop")]),
+            self.success_executor,
+        )
+        self.assertEqual(result.termination_reason, "verifier_stop")
+        self.assertEqual(len(planner.requests), 2)
+        self.assertIn("Unknown schema", planner.requests[1].messages[-1]["content"])
+        self.assertIsNotNone(result.iterations[0].planner_initial_attempt)
+
+    def test_verifier_format_retry_recovers_without_new_iteration_or_sql(self) -> None:
+        planner = ScriptedGenerator([planner_json()])
+        coder = ScriptedGenerator(["SELECT 9"])
+        verifier = ScriptedGenerator(["not json", verifier_json("stop")])
+        executed = []
+
+        def execute(sql):
+            executed.append(sql)
+            return self.success_executor(sql)
+
+        result = run_episode(self.request, planner, coder, verifier, execute)
+        self.assertEqual(result.termination_reason, "verifier_stop")
+        self.assertEqual(result.final_iteration, 1)
+        self.assertEqual(len(result.iterations), 1)
+        self.assertEqual(len(planner.requests), 1)
+        self.assertEqual(len(coder.requests), 1)
+        self.assertEqual(executed, ["SELECT 9"])
+        self.assertEqual(len(verifier.requests), 2)
+        first, retry = verifier.requests
+        self.assertNotEqual(first.example_id, retry.example_id)
+        self.assertTrue(retry.example_id.endswith(":iteration-1"))
+        self.assertEqual(retry.messages[:2], first.messages)
+        self.assertEqual(retry.messages[2], {"role": "assistant", "content": "not json"})
+        self.assertIn('"feedback" first and "decision" second', retry.messages[3]["content"])
+        record = result.iterations[0]
+        self.assertEqual(record.verifier_initial_attempt.generation.raw_output, "not json")
+        self.assertIsNone(record.verifier.contract_error)
+        self.assertEqual(type(record).from_dict(record.to_dict()).to_dict(), record.to_dict())
+
+    def test_verifier_generation_error_does_not_trigger_format_retry(self) -> None:
+        calls = []
+
+        def unavailable(request):
+            calls.append(request)
+            return GenerationResult(status="error", error_type="unavailable")
+
+        result = run_episode(
+            self.request, ScriptedGenerator([planner_json()]),
+            ScriptedGenerator(["SELECT 1"]), unavailable, self.success_executor,
+        )
+        self.assertEqual(result.termination_reason, "verifier_generation_error")
+        self.assertEqual(len(calls), 1)
+        self.assertIsNone(result.iterations[0].verifier_initial_attempt)
 
     def test_execution_checkpoint_resume_skips_completed_calls_and_tool(self) -> None:
         saved = []
@@ -283,9 +372,9 @@ class AgentWorkflowTests(unittest.TestCase):
             if event == "execution_completed":
                 raise RuntimeError("simulated coordinator interruption")
 
-        planner = ScriptedGenerator([planner_json(1)])
+        planner = ScriptedGenerator([planner_json()])
         coder = ScriptedGenerator(["SELECT 7"])
-        verifier = ScriptedGenerator([verifier_json(1, "stop")])
+        verifier = ScriptedGenerator([verifier_json("stop")])
         executed: List[str] = []
 
         def execute(sql: str) -> ExecutionResult:
@@ -329,9 +418,9 @@ class AgentWorkflowTests(unittest.TestCase):
             if event == "coder_completed":
                 raise RuntimeError("interrupted before tool execution")
 
-        planner = ScriptedGenerator([planner_json(1)])
+        planner = ScriptedGenerator([planner_json()])
         coder = ScriptedGenerator(["SELECT 8"])
-        verifier = ScriptedGenerator([verifier_json(1, "stop")])
+        verifier = ScriptedGenerator([verifier_json("stop")])
         with self.assertRaisesRegex(RuntimeError, "before tool"):
             run_episode(
                 self.request,

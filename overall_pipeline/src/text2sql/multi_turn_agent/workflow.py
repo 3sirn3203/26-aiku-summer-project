@@ -15,6 +15,8 @@ from text2sql.multi_turn_agent.contracts import (
 )
 from text2sql.multi_turn_agent.observation import bound_execution_observation
 from text2sql.multi_turn_agent.prompts import (
+    PLANNER_FORMAT_RETRY_PROMPT,
+    VERIFIER_FORMAT_RETRY_PROMPT,
     build_coder_messages,
     build_planner_messages,
     build_verifier_messages,
@@ -107,11 +109,15 @@ class AgentIterationRecord:
     sql_parsing: Optional[Mapping[str, Any]] = None
     execution_observation: Optional[Mapping[str, Any]] = None
     verifier: Optional[RoleTrace] = None
+    verifier_initial_attempt: Optional[RoleTrace] = None
+    planner_initial_attempt: Optional[RoleTrace] = None
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "AgentIterationRecord":
         coder = payload.get("coder")
         verifier = payload.get("verifier")
+        initial_attempt = payload.get("verifier_initial_attempt")
+        planner_initial_attempt = payload.get("planner_initial_attempt")
         sql_parsing = payload.get("sql_parsing")
         observation = payload.get("execution_observation")
         return cls(
@@ -121,6 +127,14 @@ class AgentIterationRecord:
             sql_parsing=dict(sql_parsing) if isinstance(sql_parsing, Mapping) else None,
             execution_observation=(dict(observation) if isinstance(observation, Mapping) else None),
             verifier=RoleTrace.from_dict(verifier) if isinstance(verifier, Mapping) else None,
+            verifier_initial_attempt=(
+                RoleTrace.from_dict(initial_attempt)
+                if isinstance(initial_attempt, Mapping) else None
+            ),
+            planner_initial_attempt=(
+                RoleTrace.from_dict(planner_initial_attempt)
+                if isinstance(planner_initial_attempt, Mapping) else None
+            ),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -135,6 +149,14 @@ class AgentIterationRecord:
                 else None
             ),
             "verifier": self.verifier.to_dict() if self.verifier is not None else None,
+            "verifier_initial_attempt": (
+                self.verifier_initial_attempt.to_dict()
+                if self.verifier_initial_attempt is not None else None
+            ),
+            "planner_initial_attempt": (
+                self.planner_initial_attempt.to_dict()
+                if self.planner_initial_attempt is not None else None
+            ),
         }
 
     def to_planner_history(self) -> Dict[str, Any]:
@@ -451,7 +473,8 @@ def run_episode(
     coder/parse, SQL execution, and verifier. Passing that mapping back as
     ``resume_state`` skips every completed LLM call and tool stage. Exceptions
     raised by injected callables propagate so the outer process coordinator can
-    retry them once. Model contract failures never trigger repair generations.
+    retry them once. Planner and verifier contract failures receive one bounded
+    format-repair generation.
     """
 
     if resume_state is not None:
@@ -485,37 +508,52 @@ def run_episode(
                 iteration,
                 [record.to_planner_history() for record in records],
             )
-            planner_generation = _generate(
-                planner_generate,
-                request.example_id,
-                "planner",
-                iteration,
-                planner_messages,
-            )
-            if planner_generation.status != "success":
-                current = AgentIterationRecord(
-                    iteration=iteration,
-                    planner=_role_trace(planner_messages, planner_generation),
+            planner_initial_attempt = None
+            for attempt in range(2):
+                planner_generation = _generate(
+                    planner_generate,
+                    request.example_id,
+                    "planner" if attempt == 0 else "planner-format-retry",
+                    iteration,
+                    planner_messages,
                 )
-                records.append(current)
-                return _finish_after_stage(
-                    request, records, "planner_generation_error", last_iteration,
-                    last_raw_output, last_parse, stage_callback, "planner_completed"
-                )
-            try:
-                planner_output = parse_planner_output(planner_generation.raw_output, iteration)
-            except ContractError as exc:
-                current = AgentIterationRecord(
-                    iteration=iteration,
-                    planner=_role_trace(
+                if planner_generation.status != "success":
+                    current = AgentIterationRecord(
+                        iteration=iteration,
+                        planner=_role_trace(planner_messages, planner_generation),
+                        planner_initial_attempt=planner_initial_attempt,
+                    )
+                    records.append(current)
+                    return _finish_after_stage(
+                        request, records, "planner_generation_error", last_iteration,
+                        last_raw_output, last_parse, stage_callback, "planner_completed"
+                    )
+                try:
+                    planner_output = parse_planner_output(
+                        planner_generation.raw_output, request.serialized_schema
+                    )
+                    break
+                except ContractError as exc:
+                    trace = _role_trace(
                         planner_messages, planner_generation, contract_error=str(exc)
-                    ),
-                )
-                records.append(current)
-                return _finish_after_stage(
-                    request, records, "planner_output_error", last_iteration,
-                    last_raw_output, last_parse, stage_callback, "planner_completed"
-                )
+                    )
+                    if attempt == 0:
+                        planner_initial_attempt = trace
+                        planner_messages = planner_messages + [
+                            {"role": "assistant", "content": planner_generation.raw_output},
+                            {"role": "user", "content": PLANNER_FORMAT_RETRY_PROMPT + str(exc)},
+                        ]
+                        continue
+                    current = AgentIterationRecord(
+                        iteration=iteration,
+                        planner=trace,
+                        planner_initial_attempt=planner_initial_attempt,
+                    )
+                    records.append(current)
+                    return _finish_after_stage(
+                        request, records, "planner_output_error", last_iteration,
+                        last_raw_output, last_parse, stage_callback, "planner_completed"
+                    )
             current = AgentIterationRecord(
                 iteration=iteration,
                 planner=_role_trace(
@@ -523,6 +561,7 @@ def run_episode(
                     planner_generation,
                     parsed_output=planner_output.to_dict(),
                 ),
+                planner_initial_attempt=planner_initial_attempt,
             )
             stage = "coder"
             _notify(
@@ -538,7 +577,7 @@ def run_episode(
             if current is None or current.planner.parsed_output is None:
                 raise ValueError("Coder stage has no valid planner output")
             planner_output = parse_planner_output(
-                json.dumps(current.planner.parsed_output), iteration
+                json.dumps(current.planner.parsed_output), request.serialized_schema
             )
             coder_messages = build_coder_messages(
                 request.question,
@@ -605,7 +644,7 @@ def run_episode(
             ):
                 raise ValueError("Verifier stage checkpoint is incomplete")
             planner_output = parse_planner_output(
-                json.dumps(current.planner.parsed_output), iteration
+                json.dumps(current.planner.parsed_output), request.serialized_schema
             )
             verifier_messages = build_verifier_messages(
                 request.question,
@@ -617,33 +656,41 @@ def run_episode(
                 current.sql_parsing,
                 current.execution_observation,
             )
-            verifier_generation = _generate(
-                verifier_generate,
-                request.example_id,
-                "verifier",
-                iteration,
-                verifier_messages,
-            )
-            if verifier_generation.status != "success":
-                current.verifier = _role_trace(verifier_messages, verifier_generation)
-                records.append(current)
-                return _finish_after_stage(
-                    request, records, "verifier_generation_error", last_iteration,
-                    last_raw_output, last_parse, stage_callback, "verifier_completed"
+            for attempt in range(2):
+                verifier_generation = _generate(
+                    verifier_generate,
+                    request.example_id,
+                    "verifier" if attempt == 0 else "verifier-format-retry",
+                    iteration,
+                    verifier_messages,
                 )
-            try:
-                verifier_output = parse_verifier_output(
-                    verifier_generation.raw_output, iteration
-                )
-            except ContractError as exc:
-                current.verifier = _role_trace(
-                    verifier_messages, verifier_generation, contract_error=str(exc)
-                )
-                records.append(current)
-                return _finish_after_stage(
-                    request, records, "verifier_output_error", last_iteration,
-                    last_raw_output, last_parse, stage_callback, "verifier_completed"
-                )
+                if verifier_generation.status != "success":
+                    current.verifier = _role_trace(verifier_messages, verifier_generation)
+                    records.append(current)
+                    return _finish_after_stage(
+                        request, records, "verifier_generation_error", last_iteration,
+                        last_raw_output, last_parse, stage_callback, "verifier_completed"
+                    )
+                try:
+                    verifier_output = parse_verifier_output(verifier_generation.raw_output)
+                    break
+                except ContractError as exc:
+                    trace = _role_trace(
+                        verifier_messages, verifier_generation, contract_error=str(exc)
+                    )
+                    if attempt == 0:
+                        current.verifier_initial_attempt = trace
+                        verifier_messages = verifier_messages + [
+                            {"role": "assistant", "content": verifier_generation.raw_output},
+                            {"role": "user", "content": VERIFIER_FORMAT_RETRY_PROMPT},
+                        ]
+                        continue
+                    current.verifier = trace
+                    records.append(current)
+                    return _finish_after_stage(
+                        request, records, "verifier_output_error", last_iteration,
+                        last_raw_output, last_parse, stage_callback, "verifier_completed"
+                    )
             current.verifier = _role_trace(
                 verifier_messages,
                 verifier_generation,

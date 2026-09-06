@@ -1,0 +1,87 @@
+{
+  "spider": {
+    "root": "../../data/spider_data",
+    "examples_file": "dev.json",
+    "tables_file": "tables.json",
+    "database_dir": "database",
+    "split": "dev"
+  },
+  "roles": {
+    "planner": {
+      "model": {
+        "source": "hub",
+        "id": "Qwen/Qwen2.5-1.5B-Instruct",
+        "revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+        "dtype": "float32",
+        "device": "cuda:0",
+        "attention_implementation": "eager",
+        "trust_remote_code": false,
+        "cache_dir": null
+      },
+      "generation": {"do_sample": false, "num_beams": 1, "repetition_penalty": 1.0, "max_time_seconds": 120.0, "max_input_tokens": 8192, "max_new_tokens": 512, "batch_size": 1},
+      "trainable": true,
+      "minimum_free_vram_bytes": 8589934592
+    },
+    "coder": {
+      "model": {
+        "source": "local",
+        "id": "../../sft/models/qwen2.5_coder_0.5b_sql_spider_raw",
+        "revision": "local",
+        "dtype": "float32",
+        "device": "cuda:0",
+        "attention_implementation": "eager",
+        "trust_remote_code": false,
+        "cache_dir": null
+      },
+      "generation": {"do_sample": false, "num_beams": 1, "repetition_penalty": 1.0, "max_time_seconds": 120.0, "max_input_tokens": 8192, "max_new_tokens": 512, "batch_size": 1},
+      "trainable": true,
+      "minimum_free_vram_bytes": 4294967296
+    },
+    "verifier": {
+      "model": {
+        "source": "hub",
+        "id": "Qwen/Qwen2.5-1.5B-Instruct",
+        "revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+        "dtype": "float32",
+        "device": "cuda:0",
+        "attention_implementation": "eager",
+        "trust_remote_code": false,
+        "cache_dir": null
+      },
+      "generation": {"do_sample": false, "num_beams": 1, "repetition_penalty": 1.0, "max_time_seconds": 120.0, "max_input_tokens": 8192, "max_new_tokens": 384, "batch_size": 1},
+      "trainable": false,
+      "minimum_free_vram_bytes": 8589934592
+    }
+  },
+  "workflow": {
+    "max_iterations": 3,
+    "observation_max_rows": 5,
+    "observation_max_bytes": 4096,
+    "infrastructure_retry_limit": 1,
+    "execution_concurrency": 2
+  },
+  "gpu_pools": {
+    "planner": [0, 1, 2],
+    "coder": [3, 4],
+    "verifier": [5, 6, 7]
+  },
+  "execution": {
+    "timeout_seconds": 5.0,
+    "max_sql_bytes": 100000,
+    "max_result_rows": 10000,
+    "max_result_bytes": 2000000,
+    "worker_memory_limit_bytes": 1073741824
+  },
+  "official_evaluation": {
+    "enabled": true,
+    "evaluator_root": "../vendor/spider_test_suite_eval",
+    "test_suite_database_root": "../../data/spider_test_suite/database",
+    "upstream_url": "https://github.com/taoyds/test-suite-sql-eval.git",
+    "upstream_commit": "e97acc546ecbee8fa27fa8dbf025ef61493a876c",
+    "plug_value": false,
+    "keep_distinct": false,
+    "timeout_seconds": 60.0,
+    "nltk_data_dir": "../../data/nltk_data"
+  },
+  "output": {"directory": "../outputs/multi_turn"}
+}

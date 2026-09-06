@@ -16,3 +16,5 @@ upload_server.txt
 !**/tmp_checkpoints/.gitkeep
 **/models/*
 !**/models/.gitkeep
+logs/
+rl_finetune/data*

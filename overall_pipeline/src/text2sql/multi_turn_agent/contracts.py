@@ -20,22 +20,20 @@ class ContractError(ValueError):
 
 @dataclass(frozen=True)
 class PlannerOutput:
-    iteration: int
-    approach: str
-    plan: Sequence[str]
-    coder_instruction: str
+    tables: Sequence[str]
+    columns: Sequence[str]
+    plan: str
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
-        payload["plan"] = list(self.plan)
+        payload["tables"] = list(self.tables)
+        payload["columns"] = list(self.columns)
         return payload
 
 
 @dataclass(frozen=True)
 class VerifierOutput:
-    iteration: int
     decision: str
-    reason: str
     feedback: str
 
     def to_dict(self) -> Dict[str, Any]:
@@ -95,69 +93,78 @@ def _require_exact_fields(payload: Mapping[str, Any], fields: Sequence[str]) -> 
         raise ContractError("JSON fields do not match the contract (%s)" % ", ".join(details))
 
 
-def _require_iteration(value: Any, expected_iteration: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ContractError("iteration must be an integer")
-    if value != expected_iteration:
-        raise ContractError(
-            "iteration must equal the requested iteration %d" % expected_iteration
-        )
-    if value < 1 or value > MAX_ITERATIONS:
-        raise ContractError("iteration must be between 1 and %d" % MAX_ITERATIONS)
-    return value
-
-
 def _non_empty_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ContractError("%s must be a non-empty string" % field_name)
     return value.strip()
 
 
-def parse_planner_output(raw_output: str, expected_iteration: int) -> PlannerOutput:
-    payload = _extract_json_object(raw_output)
-    _require_exact_fields(
-        payload,
-        ("iteration", "approach", "plan", "coder_instruction"),
-    )
-    iteration = _require_iteration(payload["iteration"], expected_iteration)
-    approach = payload["approach"]
-    if approach not in {"direct", "iterative"}:
-        raise ContractError("approach must be either 'direct' or 'iterative'")
-    raw_plan = payload["plan"]
-    if not isinstance(raw_plan, list) or not raw_plan:
-        raise ContractError("plan must be a non-empty JSON array")
-    plan = tuple(
-        _non_empty_string(step, "plan[%d]" % index)
-        for index, step in enumerate(raw_plan)
-    )
-    coder_instruction = _non_empty_string(
-        payload["coder_instruction"], "coder_instruction"
-    )
-    return PlannerOutput(
-        iteration=iteration,
-        approach=approach,
-        plan=plan,
-        coder_instruction=coder_instruction,
-    )
+_PLACEHOLDERS = {"step", "instruction", "table", "table_name", "column", "column_name"}
 
 
-def parse_verifier_output(raw_output: str, expected_iteration: int) -> VerifierOutput:
+def _non_empty_string_list(value: Any, field_name: str) -> Sequence[str]:
+    if not isinstance(value, list) or not value:
+        raise ContractError("%s must be a non-empty JSON array" % field_name)
+    result = tuple(
+        _non_empty_string(item, "%s[%d]" % (field_name, index))
+        for index, item in enumerate(value)
+    )
+    if len(set(result)) != len(result):
+        raise ContractError("%s must not contain duplicates" % field_name)
+    for item in result:
+        if item.lower() in _PLACEHOLDERS:
+            raise ContractError("%s contains placeholder value: %s" % (field_name, item))
+    return result
+
+
+def _schema_identifiers(serialized_schema: str) -> tuple[set[str], set[str]]:
+    tables: set[str] = set()
+    columns: set[str] = set()
+    current_table: str | None = None
+    for line in serialized_schema.splitlines():
+        table_match = re.fullmatch(r'Table "((?:[^"]|"")+)"', line)
+        if table_match:
+            current_table = table_match.group(1).replace('""', '"')
+            tables.add(current_table)
+            continue
+        column_match = re.match(r'  - "((?:[^"]|"")+)"\s+', line)
+        if column_match and current_table is not None:
+            column = column_match.group(1).replace('""', '"')
+            columns.add("%s.%s" % (current_table, column))
+    if not tables or not columns:
+        raise ContractError("Supplied schema contains no parseable table/column identifiers")
+    return tables, columns
+
+
+def parse_planner_output(raw_output: str, serialized_schema: str) -> PlannerOutput:
     payload = _extract_json_object(raw_output)
-    _require_exact_fields(payload, ("iteration", "decision", "reason", "feedback"))
-    iteration = _require_iteration(payload["iteration"], expected_iteration)
+    _require_exact_fields(payload, ("tables", "columns", "plan"))
+    tables = _non_empty_string_list(payload["tables"], "tables")
+    columns = _non_empty_string_list(payload["columns"], "columns")
+    plan = _non_empty_string(payload["plan"], "plan")
+    if plan.lower() in _PLACEHOLDERS:
+        raise ContractError("plan contains a placeholder value")
+    schema_tables, schema_columns = _schema_identifiers(serialized_schema)
+    unknown_tables = sorted(set(tables) - schema_tables)
+    unknown_columns = sorted(set(columns) - schema_columns)
+    if unknown_tables:
+        raise ContractError("Unknown schema tables: %s" % unknown_tables)
+    if unknown_columns:
+        raise ContractError("Unknown schema columns: %s" % unknown_columns)
+    missing_tables = sorted({column.rsplit(".", 1)[0] for column in columns} - set(tables))
+    if missing_tables:
+        raise ContractError("Column parent tables missing from tables: %s" % missing_tables)
+    return PlannerOutput(tables=tables, columns=columns, plan=plan)
+
+
+def parse_verifier_output(raw_output: str) -> VerifierOutput:
+    payload = _extract_json_object(raw_output)
+    _require_exact_fields(payload, ("decision", "feedback"))
     decision = payload["decision"]
-    if decision not in {"stop", "continue"}:
+    if decision not in ("stop", "continue"):
         raise ContractError("decision must be either 'stop' or 'continue'")
-    reason = _non_empty_string(payload["reason"], "reason")
-    feedback = payload["feedback"]
-    if not isinstance(feedback, str):
-        raise ContractError("feedback must be a string")
-    feedback = feedback.strip()
-    if decision == "continue" and not feedback:
-        raise ContractError("feedback must be non-empty when decision is 'continue'")
+    feedback = _non_empty_string(payload["feedback"], "feedback")
     return VerifierOutput(
-        iteration=iteration,
         decision=decision,
-        reason=reason,
         feedback=feedback,
     )

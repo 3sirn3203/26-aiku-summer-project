@@ -22,6 +22,7 @@ from text2sql.multi_turn_agent.config import (
 )
 from text2sql.multi_turn_agent.protocol import RoleTask, RoleTaskResult
 from text2sql.multi_turn_agent.runner import (
+    _mock_output,
     _multi_turn_cost_metrics,
     run_agent_evaluation,
 )
@@ -450,12 +451,26 @@ class AgentRunnerTests(unittest.TestCase):
                 for gold_sql in selected_gold:
                     self.assertNotIn(gold_sql, rendered_messages)
 
-    def test_local_scripted_mock_uses_real_role_subprocesses_end_to_end(self) -> None:
+    def test_real_role_subprocesses_retry_verifier_format_end_to_end(self) -> None:
+        verifier_calls = 0
+
+        def output(role, iteration, serialized_schema=None):
+            nonlocal verifier_calls
+            if role == "verifier":
+                verifier_calls += 1
+                if verifier_calls == 1:
+                    return "not json"
+            return _mock_output(role, iteration, serialized_schema)
+
         with tempfile.TemporaryDirectory() as directory:
             config = self._config(
                 Path(directory), sample_count=1, reverse_samples=False
             )
             with (
+                mock.patch(
+                    "text2sql.multi_turn_agent.runner._mock_output",
+                    side_effect=output,
+                ),
                 mock.patch(
                     "text2sql.multi_turn_agent.runner.validate_official_environment",
                     side_effect=_official_preflight,
@@ -478,6 +493,12 @@ class AgentRunnerTests(unittest.TestCase):
             manifest = json.loads(
                 (run_dir / "run_manifest.json").read_text(encoding="utf-8")
             )
+            self.assertEqual(verifier_calls, 2)
+            self.assertEqual(len(trajectories[0]["iterations"]), 1)
+            self.assertEqual(trajectories[0]["termination_reason"], "verifier_stop")
+            attempt = trajectories[0]["iterations"][0]["verifier_initial_attempt"]
+            self.assertEqual(attempt["generation"]["raw_output"], "not json")
+            self.assertIsNotNone(attempt["contract_error"])
             self.assertEqual(len(trajectories), 1)
             self.assertEqual(len(records), 1)
             self.assertEqual(trajectories[0]["final_sql"], "SELECT 1")

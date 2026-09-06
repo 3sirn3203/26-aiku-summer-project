@@ -67,7 +67,7 @@ def check_training_dependencies() -> Dict[str, str]:
     return versions
 
 
-def load_model_and_tokenizer(config: AppConfig) -> Any:
+def load_model_and_tokenizer(config: AppConfig, *, training_dtype: Any = None) -> Any:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -80,7 +80,7 @@ def load_model_and_tokenizer(config: AppConfig) -> Any:
     tokenizer = AutoTokenizer.from_pretrained(config.model.model_id, **common_kwargs)
     model = AutoModelForCausalLM.from_pretrained(
         config.model.model_id,
-        torch_dtype=torch.float32,
+        torch_dtype=training_dtype or torch.float32,
         attn_implementation=config.model.attention_implementation,
         **common_kwargs,
     )

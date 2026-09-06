@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+
+# Generated datasets can contain gold SQL and should stay local.
+data/**/*
+!data/.gitkeep
+
+# Training and evaluation artifacts are reproducible but potentially large.
+models/**/*
+!models/.gitkeep
+outputs/**/*
+!outputs/.gitkeep
+
+# Generated deployment configs contain machine-local checkpoint paths.
+configs/*.json
