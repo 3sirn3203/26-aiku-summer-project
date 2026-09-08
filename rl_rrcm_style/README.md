@@ -66,7 +66,7 @@ DB는 `{database_dir}/{db_id}/{db_id}.sqlite` 구조, schema는 Spider `tables.j
 - `dtype`: `auto`, `float32`, `float16`, `bfloat16`. GPU가 BF16을 지원하는지 확인하세요. 예제는 호환성을 위해 FP32이며 메모리/속도에 맞춰 변경할 수 있습니다. Full tuning은 FP32 master weights와 선택한 autocast dtype을 사용합니다.
 - `device`: `auto`, `cpu`, `cuda:0` 등. `reference_device`로 별도 GPU/CPU에 고정 reference를 둘 수 있습니다. CPU reference는 느릴 수 있습니다. Quantized reference도 CUDA가 필요합니다.
 
-기본 updater는 policy 한 device에서 실행합니다. `runtime.rollout_devices`를 지정하면 GPU별 Hugging Face worker가 complete trajectory를 분산 생성하고, 매 update 뒤 policy version과 LoRA/full state를 동기화합니다. `runtime.update_backend=fsdp`는 두 GPU에 parameter/gradient/optimizer state를 `FULL_SHARD`하며 별도 rollout device가 필요합니다. DDP와 inference용 `device_map=auto` 학습은 사용하지 않습니다. Reference는 별도 model copy이므로 KL을 사용하면 해당 가중치 메모리가 추가되고, `kl_coefficient=0`이면 로드하지 않습니다. QLoRA는 단일 updater에서 지원하며 FSDP 조합은 검증 전이라 거부합니다.
+기본 updater는 policy 한 device에서 실행합니다. `runtime.rollout_devices`를 지정하면 GPU별 Hugging Face worker가 complete trajectory를 분산 생성하고, 매 update 뒤 policy version과 LoRA/full state를 동기화합니다. 단일 updater 구성에서 `runtime.validation_devices`에 updater/reference/rollout device를 함께 지정하면 validation 동안 updater/reference GPU에 현재 policy replica를 임시로 올리고 기존 rollout worker와 함께 dev 생성에 사용합니다. 임시 replica는 validation 직후 해제됩니다. `runtime.update_backend=fsdp`는 두 GPU에 parameter/gradient/optimizer state를 `FULL_SHARD`하며 별도 rollout device가 필요합니다. DDP와 inference용 `device_map=auto` 학습은 사용하지 않습니다. Reference는 별도 model copy이므로 KL을 사용하면 해당 가중치 메모리가 추가되고, `kl_coefficient=0`이면 로드하지 않습니다. QLoRA는 단일 updater에서 지원하며 FSDP 조합은 검증 전이라 거부합니다.
 
 ## 학습
 

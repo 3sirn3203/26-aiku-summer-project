@@ -75,6 +75,7 @@ class RuntimeConfig:
     update_backend: str = "single"
     update_devices: list[str] = field(default_factory=list)
     rollout_devices: list[str] = field(default_factory=list)
+    validation_devices: list[str] = field(default_factory=list)
     worker_timeout: float = 1800
     fsdp_wrap_classes: list[str] = field(default_factory=list)
 
@@ -164,6 +165,19 @@ class Config:
             raise ValueError("single update requires at most one device")
         if r.update_backend == "single" and r.update_devices and r.update_devices[0] != self.model.device:
             raise ValueError("single update_devices[0] must match model.device")
+        if len(r.validation_devices) != len(set(r.validation_devices)):
+            raise ValueError("validation_devices must be unique")
+        if r.validation_devices and not e.enabled:
+            raise ValueError("validation_devices requires evaluation.enabled")
+        if r.validation_devices and r.update_backend != "single":
+            raise ValueError("validation_devices currently supports the single update backend")
+        assigned = set((r.update_devices or [self.model.device]) + r.rollout_devices)
+        if self.train.kl_coefficient:
+            assigned.add(self.model.reference_device or (r.update_devices or [self.model.device])[0])
+        if r.validation_devices and not set(r.validation_devices) <= assigned:
+            raise ValueError("validation_devices must use GPUs already assigned to this training run")
+        if r.validation_devices and not set(r.rollout_devices) <= set(r.validation_devices):
+            raise ValueError("validation_devices must include every rollout device")
         if r.update_backend == "fsdp":
             if len(r.update_devices) != 2 or not r.rollout_devices:
                 raise ValueError("FSDP requires two update_devices and dedicated rollout_devices (cpu allowed)")

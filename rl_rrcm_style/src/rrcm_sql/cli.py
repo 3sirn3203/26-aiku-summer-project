@@ -58,6 +58,9 @@ def main():
                 for key in ("output_dir", "max_steps", "max_groups", "save_steps"):
                     old["train"].pop(key)
                     new["train"].pop(key)
+                # Validation parallelism does not change the training objective or sampling policy.
+                old["runtime"].pop("validation_devices", None)
+                new["runtime"].pop("validation_devices", None)
                 old.pop("tracking")
                 new.pop("tracking")
                 if old != new:

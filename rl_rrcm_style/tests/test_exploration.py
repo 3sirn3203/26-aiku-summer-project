@@ -4,9 +4,26 @@ import unittest
 
 from rrcm_sql.config import RolloutConfig
 from rrcm_sql.exploration import action_messages, group_modes, requested_action, task_seed
+from rrcm_sql.runtime.rollout_pool import CombinedEvaluationPool
 
 
 class ExplorationTest(unittest.TestCase):
+    def test_combined_validation_pool_uses_both_pools_and_restores_order(self):
+        class Pool:
+            def __init__(self, name, devices):
+                self.name, self.devices, self.seen = name, devices, []
+            def evaluate(self, rows, schemas, policy_version, cfg):
+                self.seen.extend(row["index"] for row in rows)
+                return [(self.name, row["index"]) for row in rows]
+        first = Pool("first", ["cuda:0", "cuda:1"])
+        second = Pool("second", ["cuda:2", "cuda:3"])
+        combined = CombinedEvaluationPool([first, second])
+        rows = [{"index": index} for index in range(9)]
+        result = combined.evaluate(rows, {}, 3, object())
+        self.assertEqual([index for _, index in result], list(range(9)))
+        self.assertEqual(set(first.seen + second.seen), set(range(9)))
+        self.assertTrue(first.seen and second.seen)
+
     def test_group_composition_and_stable_seeds(self):
         cfg = RolloutConfig(group_size=6, prompted_trajectories=3)
         self.assertEqual(group_modes(cfg), ["free"] * 3 + ["prompted_random"] * 3)

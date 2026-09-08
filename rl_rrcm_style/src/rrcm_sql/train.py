@@ -239,6 +239,7 @@ def _train_single(cfg, resume=None, tracker=None, cleanup=None):
     (output / "runtime.json").write_text(json.dumps({
         "torch": torch.__version__, "device": str(next(model.parameters()).device),
         "update_backend": "single", "rollout_devices": cfg.runtime.rollout_devices,
+        "validation_devices": cfg.runtime.validation_devices,
         "trainable_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad),
         "correctness": "spider_result_eq" if cfg.sql.evaluator_path else "strict_execution_proxy",
     }, indent=2) + "\n")
@@ -246,7 +247,24 @@ def _train_single(cfg, resume=None, tracker=None, cleanup=None):
     validation = Validation(cfg, output, state, tracker)
 
     def validate(phase):
-        if validation.due(phase) and validation.run(policy=policy if pool is None else None, pool=pool):
+        if not validation.due(phase):
+            return
+        validation_pool, temporary_pool = pool, None
+        try:
+            if pool and cfg.runtime.validation_devices:
+                extra = [device for device in cfg.runtime.validation_devices
+                         if device not in cfg.runtime.rollout_devices]
+                if extra:
+                    from .runtime.rollout_pool import CombinedEvaluationPool, RolloutPool
+                    temporary_pool = RolloutPool(cfg, extra, ".validation_state")
+                    temporary_pool.sync(model, policy_version=state["step"])
+                    validation_pool = CombinedEvaluationPool([pool, temporary_pool])
+            improved = validation.run(policy=policy if validation_pool is None else None,
+                                      pool=validation_pool)
+        finally:
+            if temporary_pool is not None:
+                temporary_pool.close()
+        if improved:
             save_checkpoint(validation.record["best_checkpoint"], model, tokenizer, optimizer,
                             scaler, cfg, state, data_hash)
             validation.publish_best()

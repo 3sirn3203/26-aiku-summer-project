@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 import atexit
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import torch
 
@@ -38,6 +39,7 @@ def _worker(device, cfg, tasks, results):
         policy = HFPolicy(model, tokenizer, cfg.model, cfg.rollout)
         executor = Executor(cfg.sql)
         judge = Judge(executor, cfg.data.database_dir, cfg.data.tables)
+        evaluation_resources = {}
         version = None
         results.put(("ready", device, None))
         while True:
@@ -56,13 +58,18 @@ def _worker(device, cfg, tasks, results):
                 _, job_id, example, schema, expected_version, eval_cfg = message
                 if version != expected_version:
                     raise RuntimeError("Evaluation worker policy version mismatch")
+                key = (eval_cfg.data.database_dir, eval_cfg.data.tables,
+                       eval_cfg.sql.suite_database_dir, eval_cfg.sql.reward_metric)
+                if key not in evaluation_resources:
+                    eval_executor = Executor(eval_cfg.sql)
+                    evaluation_resources[key] = (
+                        eval_executor,
+                        Judge(eval_executor, eval_cfg.data.database_dir, eval_cfg.data.tables))
+                eval_executor, eval_judge = evaluation_resources[key]
                 from ..validation import preserve_inference_state
                 with preserve_inference_state(model):
-                    eval_executor = Executor(eval_cfg.sql)
                     trajectory = rollout(
-                        policy, example, schema, eval_executor,
-                        Judge(eval_executor, eval_cfg.data.database_dir, eval_cfg.data.tables),
-                        eval_cfg.rollout,
+                        policy, example, schema, eval_executor, eval_judge, eval_cfg.rollout,
                         mode="free", sample=False, evaluate_suite=bool(eval_cfg.sql.suite_database_dir),
                         policy_version=version)
                 results.put(("evaluation", job_id, trajectory))
@@ -85,13 +92,13 @@ def _worker(device, cfg, tasks, results):
 
 
 class RolloutPool:
-    def __init__(self, cfg, devices):
+    def __init__(self, cfg, devices, state_directory=".rollout_state"):
         if not devices:
             raise ValueError("RolloutPool needs at least one device")
         self.cfg, self.devices = cfg, list(devices)
         self.closed = False
         self.context = mp.get_context("spawn")
-        self.state_dir = Path(cfg.train.output_dir) / ".rollout_state"
+        self.state_dir = Path(cfg.train.output_dir) / state_directory
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.state_path = self.state_dir / "policy.pt"
         self.results = self.context.Queue()
@@ -188,3 +195,35 @@ class RolloutPool:
                 pending[next_index] = worker
                 next_index += 1
         return [results[i] for i in range(len(rows))]
+
+
+class CombinedEvaluationPool:
+    """Evaluate disjoint row shards concurrently across multiple rollout pools."""
+
+    def __init__(self, pools):
+        self.pools = list(pools)
+        if not self.pools:
+            raise ValueError("CombinedEvaluationPool needs at least one pool")
+        self.devices = [device for pool in self.pools for device in pool.devices]
+
+    def evaluate(self, rows, schemas, policy_version, cfg):
+        assignments = [[] for _ in self.pools]
+        weighted = [index for index, pool in enumerate(self.pools) for _ in pool.devices]
+        for index, row in enumerate(rows):
+            assignments[weighted[index % len(weighted)]].append((index, row))
+
+        def evaluate_shard(pool, shard):
+            selected = [row for _, row in shard]
+            return shard, pool.evaluate(selected, schemas, policy_version, cfg)
+
+        merged = {}
+        with ThreadPoolExecutor(max_workers=len(self.pools)) as threads:
+            futures = [threads.submit(evaluate_shard, pool, shard)
+                       for pool, shard in zip(self.pools, assignments) if shard]
+            for future in futures:
+                shard, trajectories = future.result()
+                for (index, _), trajectory in zip(shard, trajectories):
+                    merged[index] = trajectory
+        if len(merged) != len(rows):
+            raise RuntimeError("Combined validation lost or duplicated examples")
+        return [merged[index] for index in range(len(rows))]

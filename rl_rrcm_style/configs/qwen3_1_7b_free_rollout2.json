@@ -31,6 +31,7 @@
             "clip_ratio": 0.2, "update_epochs": 1, "max_grad_norm": 1.0,
             "max_consecutive_amp_skips": 5, "save_steps": 25, "sft_epochs": 1},
   "runtime": {"update_backend": "single", "update_devices": ["cuda:0"],
-              "rollout_devices": ["cuda:2", "cuda:3"], "worker_timeout": 1800,
+              "rollout_devices": ["cuda:2", "cuda:3"],
+              "validation_devices": ["cuda:0", "cuda:1", "cuda:2", "cuda:3"], "worker_timeout": 1800,
               "fsdp_wrap_classes": []}
 }
