@@ -1,0 +1,44 @@
+{
+  "evaluation": {"enabled": true, "every_steps": 25, "at_start": true, "at_end": true,
+                 "limit": null, "selection_metric": "execution_accuracy"},
+  "tracking": {"backend": "none", "project": "rl-rrcm-style", "mode": "online",
+               "group": "lora", "tags": ["spider", "grpo"]},
+  "model": {
+    "name_or_path": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
+    "mode": "lora",
+    "dtype": "float32",
+    "device": "auto",
+    "target_modules": "all-linear",
+    "gradient_checkpointing": true,
+    "chat_format": "auto"
+  },
+  "data": {
+    "split_mode": "official",
+    "prepared_dir": "rl_rrcm_style/prepared",
+    "database_dir": "data/spider_data/database",
+    "tables": "data/spider_data/tables.json"
+  },
+  "sql": {
+    "evaluator_path": "overall_pipeline/vendor/spider_test_suite_eval",
+    "nltk_data": "data/nltk_data",
+    "reward_metric": "execution"
+  },
+  "rollout": {
+    "max_intermediate": 3,
+    "max_context_tokens": 4096,
+    "max_new_tokens": 256,
+    "group_size": 4,
+    "temperature": 1.0,
+    "efficiency_beta": 0.2,
+    "non_executable_penalty": 0.25
+  },
+  "train": {
+    "output_dir": "rl_rrcm_style/runs/lora",
+    "seed": 42,
+    "max_steps": 100,
+    "max_groups": 2000,
+    "learning_rate": 0.000005,
+    "kl_coefficient": 0.001,
+    "save_steps": 25
+  }
+}

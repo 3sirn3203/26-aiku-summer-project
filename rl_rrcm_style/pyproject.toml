@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rrcm-sql"
+version = "0.1.0"
+description = "Standalone multi-turn GRPO for adaptive Text-to-SQL"
+requires-python = ">=3.11"
+dependencies = ["torch>=2.3", "transformers>=4.46", "accelerate>=0.34", "sqlparse>=0.5"]
+
+[project.optional-dependencies]
+wandb = ["wandb>=0.19"]
+peft = ["peft>=0.14"]
+qlora = ["peft>=0.14", "bitsandbytes>=0.43"]
+spider = ["nltk>=3.9", "tqdm"]
+
+[project.scripts]
+rrcm-sql = "rrcm_sql.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

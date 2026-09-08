@@ -1,0 +1,76 @@
+{
+  "evaluation": {"enabled": true, "every_steps": 25, "at_start": true, "at_end": true,
+                 "limit": null, "selection_metric": "execution_accuracy"},
+  "tracking": {"backend": "none", "project": "rl-rrcm-style", "mode": "online",
+               "group": "qwen3_1_7b_lora", "tags": ["spider", "grpo"]},
+  "model": {
+    "name_or_path": "Qwen/Qwen3-1.7B",
+    "tokenizer_name_or_path": null,
+    "adapter_name_or_path": null,
+    "revision": null,
+    "trust_remote_code": false,
+    "local_files_only": false,
+    "dtype": "float16",
+    "device": "cuda:0",
+    "reference_device": "cuda:1",
+    "mode": "lora",
+    "quantization": null,
+    "lora_rank": 16,
+    "lora_alpha": 32,
+    "target_modules": "all-linear",
+    "gradient_checkpointing": true,
+    "chat_format": "chat",
+    "chat_template": null,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    },
+    "model_kwargs": {
+      "attn_implementation": "sdpa"
+    },
+    "tokenizer_kwargs": {}
+  },
+  "data": {
+    "split_mode": "official",
+    "prepared_dir": "rl_rrcm_style/prepared",
+    "database_dir": "data/spider_data/database",
+    "tables": "data/spider_data/tables.json"
+  },
+  "sql": {
+    "timeout_seconds": 5.0,
+    "max_rows": 20,
+    "max_response_chars": 6000,
+    "max_sql_chars": 20000,
+    "max_result_rows": 100000,
+    "max_result_bytes": 16000000,
+    "worker_memory_mb": 1024,
+    "evaluator_path": "overall_pipeline/vendor/spider_test_suite_eval",
+    "nltk_data": "data/nltk_data",
+    "suite_database_dir": null,
+    "reward_metric": "execution"
+  },
+  "rollout": {
+    "max_intermediate": 3,
+    "max_context_tokens": 4096,
+    "max_new_tokens": 256,
+    "temperature": 0.7,
+    "group_size": 4,
+    "efficiency_beta": 0.2,
+    "non_executable_penalty": 0.25
+  },
+  "train": {
+    "output_dir": "rl_rrcm_style/runs/qwen3_1_7b_lora",
+    "seed": 42,
+    "max_steps": 100,
+    "max_groups": 2000,
+    "groups_per_update": 1,
+    "learning_rate": 0.000005,
+    "weight_decay": 0.0,
+    "kl_coefficient": 0.001,
+    "clip_ratio": 0.2,
+    "update_epochs": 1,
+    "max_grad_norm": 1.0,
+    "max_consecutive_amp_skips": 5,
+    "save_steps": 25,
+    "sft_epochs": 1
+  }
+}
