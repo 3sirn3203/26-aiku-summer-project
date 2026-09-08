@@ -63,6 +63,7 @@ class RolloutConfig:
     max_new_tokens: int = 256
     temperature: float = 1.0
     group_size: int = 4
+    exact_match_alpha: float = 1.5
     efficiency_beta: float = 0.2
     non_executable_penalty: float = 0.25
     prompted_trajectories: int = 0
@@ -146,6 +147,8 @@ class Config:
             raise ValueError("Test-suite selection requires evaluation.dev_suite_database_dir")
         if e.enabled and e.selection_metric == "exact_match" and not self.sql.evaluator_path:
             raise ValueError("Exact-match selection requires sql.evaluator_path")
+        if self.rollout.exact_match_alpha > 0 and not self.sql.evaluator_path:
+            raise ValueError("Exact-match reward requires sql.evaluator_path")
         if self.tracking.backend not in {"none", "wandb"} or self.tracking.mode not in {"online", "offline", "disabled"}:
             raise ValueError("Invalid tracking backend/mode")
         r = self.runtime
@@ -206,7 +209,8 @@ class Config:
             raise ValueError("group_size >= 2 and max_intermediate >= 0 are required")
         if self.sql.max_rows < 0 or self.sql.max_response_chars < 256:
             raise ValueError("max_rows >= 0 and max_response_chars >= 256 are required")
-        if min(self.rollout.efficiency_beta, self.rollout.non_executable_penalty,
+        if min(self.rollout.exact_match_alpha, self.rollout.efficiency_beta,
+               self.rollout.non_executable_penalty,
                self.train.kl_coefficient, self.train.weight_decay) < 0:
             raise ValueError("Reward weights, KL and weight decay must be nonnegative")
         if not 0 < self.train.clip_ratio < 1 or self.train.max_grad_norm <= 0:

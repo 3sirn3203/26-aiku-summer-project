@@ -67,7 +67,7 @@ def evaluate_policy(cfg, output_dir, policy=None, pool=None, policy_version=0,
     cfg.save(output / "config.json")
     schemas = schema_map(cfg.data.tables)
     executor = Executor(cfg.sql)
-    judge = Judge(executor, cfg.data.database_dir)
+    judge = Judge(executor, cfg.data.database_dir, cfg.data.tables)
     trajectories = []
     worker_rows = [dict(row, example_id=str(row.get("example_id", index)))
                    for index, row in enumerate(rows)]

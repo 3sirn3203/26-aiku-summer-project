@@ -4,31 +4,34 @@ import time
 import random
 
 from .data import database_path
-from .sql import reward
+from .sql import reward_components
 from .exploration import requested_action, action_messages
 
 
 INSTRUCTION = """
 Translate the question into SQLite SQL using the full database schema below.
-At each step, choose exactly ONE of the following two actions:
+Write one complete read-only SQLite SQL query using tables and columns from the provided schema.
+Enclose the SQL query in exactly one matching tag pair:
 
-1. <answer>SQL</answer>
-    - Use this action when you are confident enough to construct the final SQL query.
-    - The SQL inside <answer> must directly answer the user's question.
-    - This action submits the final SQL and terminates the task.
+<answer>...</answer>
+Use this tag when you are confident that you can construct the final SQL query.
+Submit the final SQL that directly answers the question and end the task.
 
-2. <intermediate>SQL</intermediate>
-    - Use this action when the final SQL is difficult to construct reliably in a single step and executing a partial query would help resolve or verify part of the problem.
-    - The intermediate SQL is executed against the database, and its result will be returned to you as additional evidence for the next step.
-    - Intermediate queries may be useful for obtaining execution feedback, such as:
-        - validating a candidate multi-table join by inspecting the joined rows,
-        - checking how relevant values are represented in the database,
-        - testing a candidate filter, subquery, or aggregation before incorporating it into the final SQL,
-        - verifying an intermediate relation needed for a more complex query.
-    - Each intermediate query should address a concrete uncertainty or subproblem whose result will help construct the final answer.
-    - Do not use <intermediate> if the final SQL can already be constructed confidently.
+<intermediate>...</intermediate>
+Use this tag when the final SQL is difficult to construct directly and a partial query can help resolve or verify part of the problem.
+The SQL will be executed, and its result or error will be returned for the next step.
+Intermediate queries may be useful for obtaining execution feedback, such as inspecting how relevant values are stored, checking a candidate join for unexpected duplicates, or testing a filter, subquery or aggregation.
+Choose a query whose result can inform the final SQL, and use the returned evidence to revise or confirm your assumptions.
+
+Examples using a toy schema inventory(item_id, category):
+To inspect the stored categories:
+<intermediate>SELECT DISTINCT category FROM inventory LIMIT 10;</intermediate>
+To answer how many items exist:
+<answer>SELECT COUNT(*) FROM inventory;</answer>
+
+The content inside the tags must be executable SQL, not the word "SQL", ellipsis, pseudocode, or a description of a query.
+Never output bare SQL, Markdown code fences, explanations, or any text outside the tags.
 """
-
 
 def initial_messages(example, schema, max_intermediate):
     # Single user message accommodates templates without a system role.
@@ -57,6 +60,7 @@ class Trajectory:
     termination: str = ""
     outcome: str = "non_executable"
     reward: float = 0.0
+    reward_components: dict = field(default_factory=dict)
     scores: dict = field(default_factory=dict)
     elapsed: float = 0.0
     mode: str = "free"
@@ -120,7 +124,13 @@ def rollout(policy, example, schema, executor, judge, cfg, sample=True, evaluate
                   else "\nNo intermediate calls remain. You must output <answer> now.")
         messages.extend([{"role": "assistant", "content": turn.text},
                          {"role": "user", "content": executor.observation(observation) + suffix}])
-    result.reward = reward(result.outcome, len(result.intermediate), cfg.max_intermediate,
-                           cfg.efficiency_beta, cfg.non_executable_penalty)
+    executed = result.scores.get("final_execution", {}).get("ok", False)
+    reward_outcome = ("correct" if result.scores.get("execution_correct", False) else
+                      "executable_incorrect" if executed else "non_executable")
+    result.reward_components = reward_components(
+        reward_outcome, result.scores.get("exact_match", False), len(result.intermediate),
+        cfg.max_intermediate, cfg.exact_match_alpha, cfg.efficiency_beta,
+        cfg.non_executable_penalty)
+    result.reward = sum(result.reward_components.values())
     result.elapsed = time.monotonic() - started
     return result

@@ -37,7 +37,7 @@ def _worker(device, cfg, tasks, results):
         model, tokenizer = load_model(cfg.model, trainable=False)
         policy = HFPolicy(model, tokenizer, cfg.model, cfg.rollout)
         executor = Executor(cfg.sql)
-        judge = Judge(executor, cfg.data.database_dir)
+        judge = Judge(executor, cfg.data.database_dir, cfg.data.tables)
         version = None
         results.put(("ready", device, None))
         while True:
@@ -61,7 +61,8 @@ def _worker(device, cfg, tasks, results):
                     eval_executor = Executor(eval_cfg.sql)
                     trajectory = rollout(
                         policy, example, schema, eval_executor,
-                        Judge(eval_executor, eval_cfg.data.database_dir), eval_cfg.rollout,
+                        Judge(eval_executor, eval_cfg.data.database_dir, eval_cfg.data.tables),
+                        eval_cfg.rollout,
                         mode="free", sample=False, evaluate_suite=bool(eval_cfg.sql.suite_database_dir),
                         policy_version=version)
                 results.put(("evaluation", job_id, trajectory))

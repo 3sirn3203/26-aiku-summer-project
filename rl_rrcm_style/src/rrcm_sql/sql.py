@@ -81,9 +81,14 @@ class Executor:
 
 
 class Judge:
-    def __init__(self, executor, database_dir):
+    def __init__(self, executor, database_dir, tables=None):
         self.executor = executor
         self.database_dir = database_dir
+        self.exact_match_scorer = None
+        if executor.config.evaluator_path and tables:
+            from .spider_metrics import ExactMatchScorer
+            self.exact_match_scorer = ExactMatchScorer(
+                executor.config.evaluator_path, tables, database_dir, executor.config.nltk_data)
 
     def compare(self, path, predicted, gold):
         cfg = self.executor.config
@@ -101,7 +106,8 @@ class Judge:
             return self._score(example, final_sql, evaluate_suite)
         except PredictionResultLimitError as exc:
             return {"outcome": "non_executable", "execution_correct": False,
-                    "final_execution": exc.result, "test_suite_correct": None}
+                    "exact_match": False, "final_execution": exc.result,
+                    "test_suite_correct": None}
 
     def _score(self, example, final_sql, evaluate_suite=False):
         from .data import database_path
@@ -109,8 +115,11 @@ class Judge:
         executed = self.executor.execute(path, final_sql)
         if not executed["ok"]:
             return {"outcome": "non_executable", "execution_correct": False,
-                    "final_execution": executed, "test_suite_correct": None}
+                    "exact_match": False, "final_execution": executed,
+                    "test_suite_correct": None}
         correct = self.compare(path, final_sql, example["query"])
+        exact = (self.exact_match_scorer.score(example, final_sql)["exact_match"]
+                 if self.exact_match_scorer else False)
         suite = None
         cfg = self.executor.config
         if evaluate_suite or cfg.reward_metric == "test_suite":
@@ -133,20 +142,37 @@ class Judge:
                 suite = (pred["ok"] and self.compare(variant, final_sql, example["query"])) and suite
         selected = suite if cfg.reward_metric == "test_suite" else correct
         return {"outcome": "correct" if selected else "executable_incorrect",
-                "execution_correct": correct, "test_suite_correct": suite,
+                "execution_correct": correct, "exact_match": exact,
+                "test_suite_correct": suite,
                 "final_execution": executed}
 
 
-def reward(outcome, intermediate_count, max_intermediate, beta=0.2, gamma=0.25):
+def reward_components(outcome, exact_match, intermediate_count, max_intermediate,
+                      alpha=1.5, beta=0.2, non_executable_penalty=0.25):
     if intermediate_count < 0 or max_intermediate < 0:
         raise ValueError("Negative intermediate count")
     if intermediate_count > max_intermediate:
-        return -gamma
+        return {"execution_reward": 0.0, "exact_match_bonus": 0.0,
+                "intermediate_penalty": 0.0,
+                "failure_penalty": -non_executable_penalty}
     if outcome == "correct":
-        return 1.0 + (beta * (max_intermediate - intermediate_count) / max_intermediate
-                      if max_intermediate else 0.0)
+        return {"execution_reward": 1.0,
+                "exact_match_bonus": alpha if exact_match else 0.0,
+                "intermediate_penalty": (-beta * intermediate_count / max_intermediate
+                                         if max_intermediate else 0.0),
+                "failure_penalty": 0.0}
     if outcome == "executable_incorrect":
-        return 0.0
+        return {"execution_reward": 0.0, "exact_match_bonus": 0.0,
+                "intermediate_penalty": 0.0, "failure_penalty": 0.0}
     if outcome == "non_executable":
-        return -gamma
+        return {"execution_reward": 0.0, "exact_match_bonus": 0.0,
+                "intermediate_penalty": 0.0,
+                "failure_penalty": -non_executable_penalty}
     raise ValueError(f"Unknown outcome: {outcome}")
+
+
+def reward(outcome, intermediate_count, max_intermediate, alpha=1.5, beta=0.2,
+           non_executable_penalty=0.25, exact_match=False):
+    components = reward_components(outcome, exact_match, intermediate_count, max_intermediate,
+                                   alpha, beta, non_executable_penalty)
+    return sum(components.values())

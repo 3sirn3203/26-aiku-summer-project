@@ -103,10 +103,12 @@ class CoreTest(unittest.TestCase):
 
     def test_reward(self):
         for m in range(4):
-            self.assertAlmostEqual(reward("correct", m, 3), 1 + 0.2 * (3-m)/3)
-            self.assertEqual(reward("executable_incorrect", m, 3), 0)
-            self.assertEqual(reward("non_executable", m, 3), -0.25)
-        self.assertEqual(reward("correct", 0, 0), 1)
+            self.assertAlmostEqual(reward("correct", m, 3), 1 - 0.2 * m / 3)
+            self.assertAlmostEqual(reward("correct", m, 3, exact_match=True),
+                                   2.5 - 0.2 * m / 3)
+            self.assertEqual(reward("executable_incorrect", m, 3, exact_match=True), 0)
+            self.assertEqual(reward("non_executable", m, 3, exact_match=True), -0.25)
+        self.assertEqual(reward("correct", 0, 0, exact_match=True), 2.5)
         self.assertEqual(reward("correct", 4, 3), -0.25)
 
     def test_rollout_error_recovery_and_limit(self):

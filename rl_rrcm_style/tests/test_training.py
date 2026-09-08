@@ -109,6 +109,7 @@ class TrainingTest(unittest.TestCase):
         self.cfg.train.save_steps = 1
         self.cfg.rollout.group_size = 2
         self.cfg.rollout.max_new_tokens = 4
+        self.cfg.rollout.exact_match_alpha = 0
 
     def tearDown(self):
         self.temp.cleanup()
@@ -396,9 +397,12 @@ class TrainingTest(unittest.TestCase):
         self.cfg.sql.evaluator_path = str(evaluator)
         self.cfg.sql.nltk_data = str(repository / "data/nltk_data")
         rows = json.loads((data / "train_spider.json").read_text())[:3]
-        judge = Judge(Executor(self.cfg.sql), data / "database")
+        judge = Judge(Executor(self.cfg.sql), data / "database", data / "tables.json")
         for row in rows:
-            self.assertEqual(judge.score(row, row["query"])["outcome"], "correct")
+            scores = judge.score(row, row["query"])
+            self.assertEqual(scores["outcome"], "correct")
+            self.assertTrue(scores["exact_match"])
+            self.assertTrue(judge.score(row, row["query"])["exact_match"])
         result = run({"evaluator_path": str(evaluator), "nltk_data": self.cfg.sql.nltk_data,
                       "database_dir": str(data / "database"), "tables": str(data / "tables.json"),
                       "rows": [dict(row, prediction=row["query"]) for row in rows]})

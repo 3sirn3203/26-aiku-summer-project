@@ -121,7 +121,7 @@ Prompt/schema/DB response token은 **loss에서 제외**합니다. Sampling에 �
 
 RL의 FP16 AMP에서 nonfinite gradient가 검출되면 `GradScaler`가 해당 optimizer update를 건너뛰고 loss scale을 낮춥니다. 실제 적용된 update만 `step`에 포함하고, skip 여부와 scale 전후 값 및 누적/연속 횟수를 `train_metrics.jsonl`에 기록합니다. `max_consecutive_amp_skips`회 연속 skip되면 지속적인 수치 문제로 판단해 중단하며 기본값은 5입니다. 이 정책은 RL `train` 명령에만 적용되고 SFT optimizer 처리는 변경하지 않습니다.
 
-Reward는 정답 `1 + beta * (N_max-m)/N_max`, 실행 가능한 오답 `0`, 실행 불가능/format failure `-gamma`입니다. `N_max=0` direct-answer baseline에서는 정답 reward를 `1`로 정의합니다. 실패한 intermediate도 횟수에 포함됩니다. 한도를 넘은 intermediate는 실행하지 않고 실패 처리합니다. Context가 가득 차면 schema/trajectory를 잘라내지 않고 해당 trajectory를 `context_limit` 실패로 처리합니다.
+Reward는 execution 정답일 때 `1 + alpha * I[exact_match] - beta * m/N_max`, 실행 가능한 오답 `0`, 실행 불가능/format failure `-lambda`입니다. 기본 `alpha=1.5`이며 설정 키는 `exact_match_alpha`, `efficiency_beta`, `non_executable_penalty`입니다. Exact-match reward를 사용하려면 `sql.evaluator_path`가 필요합니다. `N_max=0`이면 intermediate penalty는 0입니다. 실패한 intermediate도 횟수에 포함됩니다. 한도를 넘은 intermediate는 실행하지 않고 실패 처리합니다. Context가 가득 차면 schema/trajectory를 잘라내지 않고 해당 trajectory를 `context_limit` 실패로 처리합니다.
 
 ## SQL 실행 및 정답 판정
 

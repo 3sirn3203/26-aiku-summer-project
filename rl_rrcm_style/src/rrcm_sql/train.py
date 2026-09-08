@@ -53,9 +53,14 @@ def summarize(trajectories):
     return {
         "count": n,
         "execution_accuracy": sum(t.scores.get("execution_correct", False) for t in trajectories) / n,
+        "exact_match": sum(t.scores.get("exact_match", False) for t in trajectories) / n,
         **{f"{kind}_rate": sum(t.outcome == kind for t in trajectories) / n
            for kind in ("correct", "executable_incorrect", "non_executable")},
         "reward_mean": sum(t.reward for t in trajectories) / n,
+        **{f"reward_{key}_mean": sum(t.reward_components.get(key, 0.0)
+                                      for t in trajectories) / n
+           for key in ("execution_reward", "exact_match_bonus", "intermediate_penalty",
+                       "failure_penalty")},
         "intermediate_mean": calls / n,
         "correct_intermediate_mean": (sum(len(t.intermediate) for t in correct) / len(correct) if correct else None),
         "direct_answer_rate": sum(t.termination == "answer" and not t.intermediate for t in trajectories) / n,
@@ -214,7 +219,7 @@ def _train_single(cfg, resume=None, tracker=None, cleanup=None):
         print("Correctness backend: strict_execution_proxy (not official Spider evaluation).", flush=True)
     policy = HFPolicy(model, tokenizer, cfg.model, cfg.rollout)
     executor = Executor(cfg.sql)
-    judge = Judge(executor, cfg.data.database_dir)
+    judge = Judge(executor, cfg.data.database_dir, cfg.data.tables)
     pool = None
     if cfg.runtime.rollout_devices:
         from .runtime.rollout_pool import RolloutPool

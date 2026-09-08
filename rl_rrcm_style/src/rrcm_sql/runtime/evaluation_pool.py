@@ -45,7 +45,7 @@ def _worker(device, cfg, checkpoint, policy_version, tasks, results):
         model, tokenizer = load_model(cfg.model, trainable=False, checkpoint=checkpoint)
         policy = HFPolicy(model, tokenizer, cfg.model, cfg.rollout)
         executor = Executor(cfg.sql)
-        judge = Judge(executor, cfg.data.database_dir)
+        judge = Judge(executor, cfg.data.database_dir, cfg.data.tables)
         results.put(("ready", device, None))
         while True:
             message = tasks.get()
