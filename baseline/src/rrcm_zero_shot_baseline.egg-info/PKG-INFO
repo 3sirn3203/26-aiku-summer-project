@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: rrcm-zero-shot-baseline
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: torch
+Requires-Dist: transformers
+Requires-Dist: sqlparse
+Requires-Dist: nltk
+Requires-Dist: rrcm-sql>=0.1.0

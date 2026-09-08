@@ -1,0 +1,2 @@
+[console_scripts]
+baseline-sql = baseline.cli:main

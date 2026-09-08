@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+src/baseline/__init__.py
+src/baseline/__main__.py
+src/baseline/cli.py
+src/baseline/config.py
+src/baseline/evaluator.py
+src/baseline/generation.py
+src/baseline/model.py
+src/baseline/worker_pool.py
+src/rrcm_zero_shot_baseline.egg-info/PKG-INFO
+src/rrcm_zero_shot_baseline.egg-info/SOURCES.txt
+src/rrcm_zero_shot_baseline.egg-info/dependency_links.txt
+src/rrcm_zero_shot_baseline.egg-info/entry_points.txt
+src/rrcm_zero_shot_baseline.egg-info/requires.txt
+src/rrcm_zero_shot_baseline.egg-info/top_level.txt
+tests/test_baseline.py

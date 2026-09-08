@@ -1,0 +1,44 @@
+{
+  "model": {
+    "name_or_path": "Qwen/Qwen3-1.7B",
+    "local_files_only": true,
+    "dtype": "float16",
+    "device": "cuda:0",
+    "chat_format": "chat",
+    "chat_template_kwargs": {"enable_thinking": false},
+    "model_kwargs": {"attn_implementation": "sdpa"}
+  },
+  "data": {
+    "test_json": "data/spider_data/test.json",
+    "test_tables": "data/spider_data/test_tables.json",
+    "test_database_dir": "data/spider_data/test_database"
+  },
+  "generation": {
+    "mode": "multi_turn",
+    "max_intermediate": 3,
+    "max_context_tokens": 4096,
+    "max_new_tokens": 256
+  },
+  "sql": {
+    "timeout_seconds": 5,
+    "max_rows": 20,
+    "max_response_chars": 6000,
+    "max_sql_chars": 20000,
+    "max_result_rows": 100000,
+    "max_result_bytes": 16000000,
+    "worker_memory_mb": 1024,
+    "evaluator_path": null,
+    "nltk_data": null,
+    "suite_database_dir": null,
+    "reward_metric": "execution"
+  },
+  "evaluation": {
+    "seed": 42,
+    "timeout_seconds": 172800,
+    "worker_timeout": 1800,
+    "evaluator_path": "overall_pipeline/vendor/spider_test_suite_eval",
+    "nltk_data": "data/nltk_data",
+    "test_suite_database_dir": null
+  }
+}
+
