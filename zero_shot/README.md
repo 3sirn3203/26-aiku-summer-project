@@ -18,6 +18,9 @@ pip install -e './rl_rrcm_style[spider]' -e ./baseline
 ```
 
 기본 설정은 `local_files_only=true`이므로 Qwen3-1.7B가 로컬 Hugging Face cache에 있어야 합니다.
+`model.adapter_name_or_path`에 PEFT LoRA adapter 디렉터리를 지정할 수 있습니다. 또는
+`model.name_or_path` 자체를 adapter 디렉터리로 지정하면 `adapter_config.json`에서 base model을
+찾습니다. adapter와 함께 저장된 tokenizer가 있으면 이를 우선 사용합니다.
 
 ## 실행
 

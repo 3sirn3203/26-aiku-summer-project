@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "rrcm-zero-shot-baseline"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["torch", "transformers", "sqlparse", "nltk", "rrcm-sql>=0.1.0"]
+dependencies = ["torch", "transformers", "peft>=0.14", "sqlparse", "nltk", "rrcm-sql>=0.1.0"]
 
 [project.scripts]
 baseline-sql = "baseline.cli:main"

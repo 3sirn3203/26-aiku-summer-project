@@ -2,7 +2,8 @@ import time
 
 from rrcm_sql.data import database_path
 from rrcm_sql.exploration import action_messages, requested_action
-from rrcm_sql.rollout import Trajectory, initial_messages, parse_action
+from rrcm_sql.rollout import (Trajectory, answer_only_messages, initial_messages,
+                              parse_action)
 
 
 def generate(policy, example, schema, executor, database_dir, rollout_cfg):
@@ -10,7 +11,8 @@ def generate(policy, example, schema, executor, database_dir, rollout_cfg):
     started = time.monotonic()
     result = Trajectory(example["example_id"], example["db_id"], example["question"], schema)
     result.mode = "free"
-    messages = initial_messages(example, schema, rollout_cfg.max_intermediate)
+    messages = (answer_only_messages(example, schema) if rollout_cfg.max_intermediate == 0
+                else initial_messages(example, schema, rollout_cfg.max_intermediate))
     for _ in range(rollout_cfg.max_intermediate + 1):
         requested = requested_action("free", len(result.intermediate), rollout_cfg, None)
         trace = {"requested": requested, "actual": None,

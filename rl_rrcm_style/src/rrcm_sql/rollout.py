@@ -33,6 +33,24 @@ The content inside the tags must be executable SQL, not the word "SQL", ellipsis
 Never output bare SQL, Markdown code fences, explanations, or any text outside the tags.
 """
 
+ANSWER_ONLY_INSTRUCTION = """
+Translate the question into SQLite SQL using the full database schema below.
+Write one complete read-only SQLite SQL query using tables and columns from the provided schema.
+Enclose the SQL query in exactly one matching tag pair:
+
+<answer>...</answer>
+
+The content inside the tags must be executable SQL, not the word "SQL", ellipsis, pseudocode, or a description of a query.
+Never output bare SQL, Markdown code fences, explanations, or any text outside the tags.
+"""
+
+
+def answer_only_messages(example, schema):
+    """Canonical one-turn prompt shared by SFT and single-turn evaluation."""
+    content = (ANSWER_ONLY_INSTRUCTION
+               + f"\nSchema:\n{schema}\n\nQuestion:\n{example['question']}")
+    return [{"role": "user", "content": content}]
+
 def initial_messages(example, schema, max_intermediate):
     # Single user message accommodates templates without a system role.
     content = (INSTRUCTION + f"\nAt most {max_intermediate} intermediate calls are allowed.\n"
@@ -87,7 +105,8 @@ def rollout(policy, example, schema, executor, judge, cfg, sample=True, evaluate
         raise ValueError("Unknown exploration mode")
     result.mode, result.seed, result.policy_version = mode, seed, policy_version
     rng = random.Random(seed)
-    messages = initial_messages(example, schema, cfg.max_intermediate)
+    messages = (answer_only_messages(example, schema) if cfg.max_intermediate == 0
+                else initial_messages(example, schema, cfg.max_intermediate))
     for _ in range(cfg.max_intermediate + 1):
         requested = requested_action(mode, len(result.intermediate), cfg, rng)
         trace = {"requested": requested, "actual": None,

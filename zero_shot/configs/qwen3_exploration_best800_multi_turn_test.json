@@ -1,7 +1,7 @@
 {
   "model": {
     "name_or_path": "Qwen/Qwen3-1.7B",
-    "adapter_name_or_path": null,
+    "adapter_name_or_path": "rl_rrcm_style/runs/qwen3_exploration_beta0.2_alpha1.0/best-step-800",
     "local_files_only": true,
     "dtype": "float16",
     "device": "cuda:0",

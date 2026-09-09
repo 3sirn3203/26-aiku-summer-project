@@ -183,6 +183,7 @@ def _write_reports(cfg, output, rows, records, devices, limit, started):
         "split": "test",
         "mode": cfg.generation.mode,
         "model_name_or_path": cfg.model.name_or_path,
+        "adapter_name_or_path": cfg.model.adapter_name_or_path,
         "evaluation_devices": list(devices),
         "is_subset": limit is not None,
         "test_suite_accuracy": (sum(bool(r["scores"]["test_suite_correct"]) for r in records) / len(records)

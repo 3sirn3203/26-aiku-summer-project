@@ -3,15 +3,16 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from baseline.config import (Config, DataConfig, EvaluationConfig, GenerationConfig,
                              ModelConfig, load_config)
 from baseline.evaluator import _summarize, _validate_suite, evaluate, rescore
 from baseline.generation import generate
+from baseline.model import load_zero_shot_policy
 from rrcm_sql.exploration import action_messages
 from rrcm_sql.model import Turn
-from rrcm_sql.rollout import initial_messages
+from rrcm_sql.rollout import answer_only_messages, initial_messages
 from rrcm_sql.sql import Executor
 from rrcm_sql.config import SQLConfig
 
@@ -53,17 +54,46 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual((multi.generation.mode, multi.generation.max_intermediate),
                          ("multi_turn", 3))
 
+    def test_adapter_path_is_accepted_by_config(self):
+        cfg = ModelConfig(adapter_name_or_path="runs/final_adapter")
+        self.assertEqual(cfg.adapter_name_or_path, "runs/final_adapter")
+
+    def test_adapter_is_loaded_on_configured_base(self):
+        cfg = Config(
+            model=ModelConfig(name_or_path="Qwen/Qwen3-1.7B",
+                              adapter_name_or_path="runs/final_adapter",
+                              local_files_only=True, device="cpu", dtype="float32"),
+            data=DataConfig(str(self.root), str(self.root), str(self.root)),
+            generation=GenerationConfig(mode="single_turn", max_intermediate=0),
+            sql=SQLConfig(timeout_seconds=1),
+            evaluation=EvaluationConfig(evaluator_path=None, nltk_data=None),
+        )
+        tokenizer = MagicMock()
+        tokenizer.pad_token_id = 0
+        tokenizer.chat_template = "template"
+        base = MagicMock()
+        adapter_model = MagicMock()
+        peft_config = MagicMock(base_model_name_or_path="Qwen/Qwen3-1.7B")
+        with patch("baseline.model.AutoTokenizer.from_pretrained", return_value=tokenizer), \
+             patch("baseline.model.AutoModelForCausalLM.from_pretrained", return_value=base), \
+             patch("peft.PeftConfig.from_pretrained", return_value=peft_config), \
+             patch("peft.PeftModel.from_pretrained", return_value=adapter_model) as load_adapter:
+            policy = load_zero_shot_policy(cfg, "cpu")
+        load_adapter.assert_called_once()
+        self.assertIs(policy.model, adapter_model)
+
     def test_single_turn_uses_exact_rrcm_prompt_and_one_call(self):
         policy = ScriptedPolicy(["<answer>SELECT id FROM t</answer>"])
         rollout_cfg = GenerationConfig(mode="single_turn", max_intermediate=0).rollout_config()
         record = generate(policy, self.example, self.schema, self.executor,
                           self.database_dir, rollout_cfg)
-        expected = action_messages(initial_messages(self.example, self.schema, 0), "answer")
+        expected = action_messages(answer_only_messages(self.example, self.schema), "answer")
         self.assertEqual(policy.messages, [expected])
         self.assertIn("For this turn, output exactly one <answer>",
                       policy.messages[0][0]["content"])
         self.assertEqual(len(record["turns"]), 1)
         self.assertEqual(record["intermediate_count"], 0)
+        self.assertNotIn("<intermediate>", policy.messages[0][0]["content"])
 
     def test_multi_turn_uses_rrcm_free_prompt_and_observation(self):
         policy = ScriptedPolicy([

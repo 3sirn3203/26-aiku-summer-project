@@ -8,6 +8,7 @@ from rrcm_sql.config import ModelConfig as RRCMModelConfig, RolloutConfig, SQLCo
 @dataclass
 class ModelConfig:
     name_or_path: str = "Qwen/Qwen3-1.7B"
+    adapter_name_or_path: str | None = None
     tokenizer_name_or_path: str | None = None
     revision: str | None = None
     trust_remote_code: bool = False
@@ -23,6 +24,7 @@ class ModelConfig:
     def policy_config(self, device=None):
         return RRCMModelConfig(
             name_or_path=self.name_or_path,
+            adapter_name_or_path=self.adapter_name_or_path,
             tokenizer_name_or_path=self.tokenizer_name_or_path,
             revision=self.revision,
             trust_remote_code=self.trust_remote_code,
@@ -115,4 +117,3 @@ def load_config(path):
     )
     cfg.validate()
     return cfg
-
