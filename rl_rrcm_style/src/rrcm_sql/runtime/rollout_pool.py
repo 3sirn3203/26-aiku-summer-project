@@ -103,13 +103,17 @@ class RolloutPool:
         self.state_path = self.state_dir / "policy.pt"
         self.results = self.context.Queue()
         self.tasks, self.processes = [], []
-        for device in self.devices:
-            tasks = self.context.Queue()
-            process = self.context.Process(target=_worker, args=(device, cfg, tasks, self.results))
-            process.start()
-            self.tasks.append(tasks)
-            self.processes.append(process)
-        self._wait_for("ready", len(self.processes))
+        try:
+            for device in self.devices:
+                tasks = self.context.Queue()
+                process = self.context.Process(target=_worker, args=(device, cfg, tasks, self.results))
+                process.start()
+                self.tasks.append(tasks)
+                self.processes.append(process)
+            self._wait_for("ready", len(self.processes))
+        except BaseException:
+            self.close()
+            raise
         atexit.register(self.close)
 
     def _get(self, timeout=None):
@@ -195,6 +199,25 @@ class RolloutPool:
                 pending[next_index] = worker
                 next_index += 1
         return [results[i] for i in range(len(rows))]
+
+
+class LocalEvaluationPool:
+    """Expose an already-loaded policy through the evaluation-pool interface."""
+
+    def __init__(self, policy, device):
+        self.policy = policy
+        self.devices = [device]
+
+    def evaluate(self, rows, schemas, policy_version, cfg):
+        from ..validation import preserve_inference_state
+        executor = Executor(cfg.sql)
+        judge = Judge(executor, cfg.data.database_dir, cfg.data.tables)
+        with preserve_inference_state(self.policy.model):
+            return [rollout(
+                self.policy, row, schemas[row["db_id"]], executor, judge, cfg.rollout,
+                mode="free", sample=False, evaluate_suite=bool(cfg.sql.suite_database_dir),
+                policy_version=policy_version)
+                for row in rows]
 
 
 class CombinedEvaluationPool:

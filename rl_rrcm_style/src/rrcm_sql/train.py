@@ -250,20 +250,56 @@ def _train_single(cfg, resume=None, tracker=None, cleanup=None):
         if not validation.due(phase):
             return
         validation_pool, temporary_pool = pool, None
+        reference_home = None
         try:
-            if pool and cfg.runtime.validation_devices:
+            if cfg.runtime.validation_devices:
+                from .runtime.rollout_pool import CombinedEvaluationPool, LocalEvaluationPool, RolloutPool
+                components = [pool] if pool is not None else []
+                update_device = cfg.runtime.update_devices[0] if cfg.runtime.update_devices else cfg.model.device
+                if update_device in cfg.runtime.validation_devices:
+                    # The updater already owns the current policy. Reusing it avoids loading a
+                    # second full model into the GPU that also holds optimizer state.
+                    components.append(LocalEvaluationPool(policy, update_device))
                 extra = [device for device in cfg.runtime.validation_devices
-                         if device not in cfg.runtime.rollout_devices]
+                         if device not in cfg.runtime.rollout_devices and device != update_device]
                 if extra:
-                    from .runtime.rollout_pool import CombinedEvaluationPool, RolloutPool
-                    temporary_pool = RolloutPool(cfg, extra, ".validation_state")
-                    temporary_pool.sync(model, policy_version=state["step"])
-                    validation_pool = CombinedEvaluationPool([pool, temporary_pool])
+                    reference_device = cfg.model.reference_device or update_device
+                    if (reference is not None and reference_device in extra and
+                            not cfg.model.quantization):
+                        # The reference is idle during validation. Move it out before the current
+                        # policy replica is loaded, then restore it before the next KL calculation.
+                        reference_home = next(reference.parameters()).device
+                        reference.to("cpu")
+                        if reference_home.type == "cuda":
+                            torch.cuda.empty_cache()
+                    elif reference_device in extra:
+                        print("Validation warning: reference GPU cannot be freed safely; "
+                              f"continuing without {reference_device}.", flush=True)
+                        extra.remove(reference_device)
+                if extra:
+                    try:
+                        temporary_pool = RolloutPool(cfg, extra, ".validation_state")
+                        temporary_pool.sync(model, policy_version=state["step"])
+                        components.append(temporary_pool)
+                    except (RuntimeError, torch.OutOfMemoryError) as exc:
+                        # Validation parallelism is optional. A replica allocation failure must
+                        # not discard an otherwise healthy training run.
+                        if temporary_pool is not None:
+                            temporary_pool.close()
+                        print("Validation warning: auxiliary workers unavailable; continuing on "
+                              f"{[device for component in components for device in component.devices]}: "
+                              f"{exc}", flush=True)
+                        temporary_pool = None
+                validation_pool = (CombinedEvaluationPool(components) if len(components) > 1
+                                   else components[0] if components else None)
             improved = validation.run(policy=policy if validation_pool is None else None,
                                       pool=validation_pool)
         finally:
             if temporary_pool is not None:
                 temporary_pool.close()
+            if reference_home is not None:
+                torch.cuda.empty_cache()
+                reference.to(reference_home)
         if improved:
             save_checkpoint(validation.record["best_checkpoint"], model, tokenizer, optimizer,
                             scaler, cfg, state, data_hash)
