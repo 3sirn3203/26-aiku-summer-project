@@ -16,6 +16,9 @@ code/outputs/
 !/sft/outputs/.gitkeep
 **/__pycache__/
 *.py[cod]
+*.egg-info/
+build/
+dist/
 .venv/
 upload_server.txt
 **/sandbox/*
