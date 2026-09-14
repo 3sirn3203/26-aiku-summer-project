@@ -6,6 +6,14 @@
 overall_pipeline/data/*
 !overall_pipeline/data/.gitkeep
 code/outputs/
+/overall_pipeline/outputs/*
+!/overall_pipeline/outputs/.gitkeep
+/rl/outputs/*
+!/rl/outputs/.gitkeep
+/rl/prepared/*
+!/rl/prepared/.gitkeep
+/sft/outputs/*
+!/sft/outputs/.gitkeep
 **/__pycache__/
 *.py[cod]
 .venv/

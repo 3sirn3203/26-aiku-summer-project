@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiku-text2sql"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "torch>=2.3",
+  "transformers>=4.51",
+  "peft>=0.14",
+  "sqlparse>=0.5",
+  "nltk>=3.9",
+  "accelerate>=0.34",
+  "psutil>=5.9",
+  "wandb>=0.17",
+]
+
+[project.scripts]
+text2sql-eval = "overall_pipeline.cli:main"
+text2sql-rl = "rl.cli:main"
+text2sql-sft = "sft.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["overall_pipeline/src", "rl/src", "sft/src"]
+include = ["overall_pipeline*", "rl*", "sft*"]
+
+[tool.pytest.ini_options]
+testpaths = ["overall_pipeline/tests", "rl/tests", "sft/tests"]

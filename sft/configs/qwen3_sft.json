@@ -1,0 +1,79 @@
+{
+  "model": {
+    "name_or_path": "Qwen/Qwen3-1.7B",
+    "local_files_only": true,
+    "dtype": "float16",
+    "attn_implementation": "sdpa",
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    }
+  },
+  "lora": {
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.0,
+    "target_modules": "all-linear",
+    "bias": "none"
+  },
+  "data": {
+    "train_json": "data/spider_data/train_spider.json",
+    "dev_json": "data/spider_data/dev.json",
+    "tables": "data/spider_data/tables.json",
+    "database_dir": "data/spider_data/database"
+  },
+  "training": {
+    "output_dir": "sft/outputs/qwen3_sft",
+    "seed": 42,
+    "epochs": 3,
+    "max_steps": -1,
+    "max_length": 4096,
+    "per_device_batch_size": 1,
+    "gradient_accumulation_steps": 2,
+    "effective_batch_size": 16,
+    "learning_rate": 0.0002,
+    "warmup_steps": 100,
+    "lr_scheduler_type": "cosine",
+    "max_grad_norm": 1.0,
+    "gradient_checkpointing": true,
+    "dataloader_num_workers": 2,
+    "logging_steps": 20,
+    "save_steps": 200,
+    "save_total_limit": 2
+  },
+  "validation": {
+    "enabled": true,
+    "strategy": "steps",
+    "steps": 200,
+    "batch_size": 1,
+    "metric": "eval_loss",
+    "generation_at_end": true,
+    "max_new_tokens": 256,
+    "evaluator_path": "overall_pipeline/vendor/spider_test_suite_eval",
+    "nltk_data": "data/nltk_data"
+  },
+  "runtime": {
+    "device": "cuda:0",
+    "expected_world_size": 8,
+    "generation_devices": [
+      "cuda:0",
+      "cuda:1",
+      "cuda:2",
+      "cuda:3",
+      "cuda:4",
+      "cuda:5",
+      "cuda:6",
+      "cuda:7"
+    ],
+    "report_to": "wandb",
+    "wandb_project": "aiku-text2sql-sft",
+    "wandb_run_name": "qwen3-sft",
+    "max_vram_fraction": 0.92,
+    "min_free_vram_mb": 1000,
+    "min_free_ram_gb": 8.0
+  },
+  "export": {
+    "save_adapter": true,
+    "merge": true,
+    "merged_subdir": "merged"
+  }
+}
