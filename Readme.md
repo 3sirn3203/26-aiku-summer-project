@@ -24,6 +24,7 @@
 - `<Intermediate>`: Agent가 정답 SQL을 생성할 수 있다고 확신하지 못하면 Intermediate query를 출력합니다. 이는 정답 query의 subquery이거나 문법 오류를 확인하기 위한 query일 수 있습니다. Intermediate query는 SQLite 환경에서 실행되며, 실행 결과는 다음 iteration의 context에 추가됩니다.
 
 이를 수학적으로 아래와 같이 나타낼 수 있습니다.
+
 Trajectory의 초기 상태 $s_0$는 사용자의 자연어 질의 $q$와 database schema $\mathcal{S}$로 구성됩니다.
 
 $$s_0=\langle q, \mathcal{S} \rangle.$$
