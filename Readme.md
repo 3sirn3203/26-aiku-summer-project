@@ -25,17 +25,21 @@
 
 이를 수학적으로 아래와 같이 나타낼 수 있습니다.
 Trajectory의 초기 상태 $s_0$는 사용자의 자연어 질의 $q$와 database schema $\mathcal{S}$로 구성됩니다.
+
 $$s_0=\langle q, \mathcal{S} \rangle.$$
 
 $t$번째 상태 $s_t$에서 policy $\pi_\theta$를 통해 action $a_t$를 샘플링합니다.
+
 $$a_t\sim \pi_\theta(\cdot\mid s_t) \qquad \text{where }a_t\in\{\texttt{Answer}(y_t), \texttt{Intermediate}(z_t)\}$$
 
 이때 $y_t$와 $z_t$는 각각 실행 가능한 SQL query를 의미합니다.
 - $a_t=\texttt{Answer}(y_t)$이면 $y_t$가 최종 SQL query가 되면서 interation이 종료됩니다.
 - $a_t=\texttt{Intermediate}(z_t)$이면 $z_t$를 실행한 다음 iteration의 state $s_{t+1}$을 다음과 같이 업데이트합니다. 
+
 $$s_{t+1}\leftarrow s_t\oplus z_t \oplus e_t \qquad \text{where }e_t \text{ is the execution result of the query }z_t.$$
 
 Iteration을 통해 최종 trajectory $\tau$는 다음과 같이 구성됩니다.
+
 $$\tau = (s_0, a_0, o_0, s_1, a_1, o_1,\cdots s_T, a_T) \qquad \text{where }a_T=\texttt{Answer}(y_T).$$
 
 ### 2. GRPO based Reinforcement Learning
